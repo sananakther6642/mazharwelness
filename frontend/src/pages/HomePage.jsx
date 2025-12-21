@@ -153,8 +153,8 @@ const HomePage = () => {
                     <CheckCircle2 className="w-6 h-6 text-green-600" />
                   </div>
                   <div>
-                    <p className="font-heading font-bold text-slate-900">200+ Sessions</p>
-                    <p className="text-sm text-slate-500">This Month</p>
+                    <p className="font-heading font-bold text-slate-900">Opening 2026</p>
+                    <p className="text-sm text-slate-500">Now Accepting Bookings</p>
                   </div>
                 </div>
               </div>
