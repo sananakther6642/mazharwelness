@@ -178,6 +178,52 @@ const NotFound = () => {
   );
 };
 
+// Role Not Assigned Page
+const RoleNotAssigned = () => {
+  const { user, logout } = useAuth();
+  
+  const handleLogout = async () => {
+    await logout();
+    window.location.href = '/login';
+  };
+  
+  return (
+    <div className="min-h-screen bg-[#F8FAFC] flex items-center justify-center p-4">
+      <div className="max-w-md w-full bg-white rounded-3xl shadow-lg p-8 text-center">
+        <div className="w-16 h-16 rounded-2xl bg-amber-100 flex items-center justify-center mx-auto mb-6">
+          <span className="text-amber-600 text-3xl">⚠️</span>
+        </div>
+        <h1 className="font-heading font-bold text-2xl text-slate-900 mb-2">
+          Role Not Assigned
+        </h1>
+        <p className="text-slate-600 mb-6">
+          Hi {user?.name || 'there'}, your account doesn't have a valid role assigned yet. 
+          Please contact the administrator to get access to the appropriate dashboard.
+        </p>
+        <div className="p-4 bg-slate-50 rounded-xl mb-6">
+          <p className="text-sm text-slate-500">
+            <strong>Your email:</strong> {user?.email}<br />
+            <strong>Current role:</strong> {user?.role || 'Not set'}
+          </p>
+        </div>
+        <div className="space-y-3">
+          <a href="/">
+            <button className="w-full h-12 rounded-full bg-[#2A9D8F] hover:bg-[#21867a] text-white font-bold transition-colors">
+              Back to Home
+            </button>
+          </a>
+          <button 
+            onClick={handleLogout}
+            className="w-full h-12 rounded-full border-2 border-slate-200 hover:border-red-200 hover:bg-red-50 text-slate-700 hover:text-red-600 font-bold transition-colors"
+          >
+            Logout
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 function App() {
   return (
     <BrowserRouter>
