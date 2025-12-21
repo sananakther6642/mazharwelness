@@ -1791,6 +1791,99 @@ async def get_progress(
     return {"metrics": metrics, "chart_data": chart_data}
 
 
+# ============ CLASSES & ATTENDANCE ============
+
+@api_router.get("/classes")
+async def get_classes(
+    date: Optional[str] = None,
+    class_type: Optional[str] = None,
+    current_user: dict = Depends(get_current_user)
+):
+    """Get classes"""
+    query = {}
+    if date:
+        query["scheduled_date"] = date
+    if class_type:
+        query["class_type"] = class_type
+    
+    classes = await db.classes.find(query, {"_id": 0}).sort("scheduled_date", -1).to_list(100)
+    return classes
+
+
+@api_router.post("/classes")
+async def create_class(
+    class_data: dict = Body(...),
+    current_user: dict = Depends(require_roles(UserRole.ADMIN, UserRole.TRAINER))
+):
+    """Create a new class"""
+    from uuid import uuid4
+    class_record = {
+        "class_id": f"cls_{str(uuid4())[:8]}",
+        "name": class_data.get("name"),
+        "class_type": class_data.get("class_type", "general"),
+        "scheduled_date": class_data.get("scheduled_date"),
+        "scheduled_time": class_data.get("scheduled_time"),
+        "max_capacity": class_data.get("max_capacity", 20),
+        "enrolled": 0,
+        "trainer_id": current_user["user_id"],
+        "created_at": datetime.now(timezone.utc).isoformat()
+    }
+    await db.classes.insert_one(class_record)
+    return {"class_id": class_record["class_id"], "message": "Class created"}
+
+
+@api_router.post("/attendance/check-in")
+async def check_in(
+    data: dict = Body(...),
+    current_user: dict = Depends(require_any_staff())
+):
+    """Check in a client"""
+    from uuid import uuid4
+    attendance = {
+        "attendance_id": f"att_{str(uuid4())[:8]}",
+        "client_id": data.get("client_id"),
+        "appointment_id": data.get("appointment_id"),
+        "class_id": data.get("class_id"),
+        "check_in": datetime.now(timezone.utc).isoformat(),
+        "recorded_by": current_user["user_id"]
+    }
+    await db.attendance.insert_one(attendance)
+    return {"attendance_id": attendance["attendance_id"], "message": "Check-in recorded"}
+
+
+# ============ DIET TEMPLATES ============
+
+@api_router.get("/diet-templates")
+async def get_diet_templates(
+    current_user: dict = Depends(require_roles(UserRole.ADMIN, UserRole.NUTRITIONIST))
+):
+    """Get diet plan templates"""
+    templates = await db.diet_templates.find({}, {"_id": 0}).to_list(100)
+    return templates
+
+
+@api_router.post("/diet-templates")
+async def create_diet_template(
+    template_data: dict = Body(...),
+    current_user: dict = Depends(require_roles(UserRole.ADMIN, UserRole.NUTRITIONIST))
+):
+    """Create a diet template"""
+    from uuid import uuid4
+    template = {
+        "template_id": f"diettpl_{str(uuid4())[:8]}",
+        "name": template_data.get("name"),
+        "plan_type": template_data.get("plan_type", "general"),
+        "meals": template_data.get("meals", []),
+        "daily_calories": template_data.get("daily_calories"),
+        "description": template_data.get("description"),
+        "created_by": current_user["user_id"],
+        "is_active": True,
+        "created_at": datetime.now(timezone.utc).isoformat()
+    }
+    await db.diet_templates.insert_one(template)
+    return {"template_id": template["template_id"], "message": "Template created"}
+
+
 # ============ BILLING & PAYMENTS ============
 
 @api_router.post("/invoices")
