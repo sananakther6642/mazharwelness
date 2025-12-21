@@ -2741,7 +2741,7 @@ async def startup_db():
     # Create demo users for all roles
     demo_users = [
         {
-            "user_id": "user_admin001",
+            "user_id": "user_demo_admin",
             "email": "admin@demo.com",
             "name": "Admin Demo",
             "role": UserRole.ADMIN.value,
@@ -2752,7 +2752,7 @@ async def startup_db():
             "deleted_at": None
         },
         {
-            "user_id": "user_reception001",
+            "user_id": "user_demo_reception",
             "email": "reception@demo.com",
             "name": "Reception Demo",
             "role": UserRole.RECEPTION.value,
@@ -2763,7 +2763,7 @@ async def startup_db():
             "deleted_at": None
         },
         {
-            "user_id": "user_physio001",
+            "user_id": "user_demo_physio",
             "email": "physio@demo.com",
             "name": "Dr. Physio Demo",
             "role": UserRole.PHYSIOTHERAPIST.value,
@@ -2774,7 +2774,7 @@ async def startup_db():
             "deleted_at": None
         },
         {
-            "user_id": "user_trainer001",
+            "user_id": "user_demo_trainer",
             "email": "trainer@demo.com",
             "name": "Trainer Demo",
             "role": UserRole.TRAINER.value,
@@ -2785,7 +2785,7 @@ async def startup_db():
             "deleted_at": None
         },
         {
-            "user_id": "user_nutrition001",
+            "user_id": "user_demo_nutrition",
             "email": "nutrition@demo.com",
             "name": "Nutritionist Demo",
             "role": UserRole.NUTRITIONIST.value,
@@ -2796,7 +2796,7 @@ async def startup_db():
             "deleted_at": None
         },
         {
-            "user_id": "user_client001",
+            "user_id": "user_demo_client",
             "email": "client@demo.com",
             "name": "Client Demo",
             "role": UserRole.CLIENT.value,
