@@ -2,7 +2,7 @@
 
 ## Base URL
 ```
-Production: https://physio-care-15.preview.emergentagent.com/api
+Production: https://paedipro.preview.emergentagent.com/api
 Local: http://localhost:8001/api
 ```
 
