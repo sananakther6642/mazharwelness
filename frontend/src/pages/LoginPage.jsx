@@ -79,6 +79,21 @@ const LoginPage = () => {
     window.location.href = `https://auth.emergentagent.com/?redirect=${encodeURIComponent(redirectUrl)}`;
   };
 
+  const handleDemoLogin = async (demoEmail, demoPassword) => {
+    setEmail(demoEmail);
+    setPassword(demoPassword);
+    setLoading(true);
+    try {
+      const userData = await login(demoEmail, demoPassword);
+      toast.success(`Welcome, ${userData.name}!`);
+      redirectToDashboard(userData.role);
+    } catch (error) {
+      toast.error(error.response?.data?.detail || 'Login failed. Please check if demo users are seeded.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   return (
     <div className="min-h-screen gradient-hero flex flex-col" data-testid="login-page">
       {/* Back to Home */}
