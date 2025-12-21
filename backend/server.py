@@ -2697,43 +2697,46 @@ async def startup_db():
         await db.faqs.insert_many(default_faqs)
         logger.info("Seeded default FAQs")
     
-    # Seed testimonials
+    # Seed testimonials (Pre-launch - Vision statements only)
     testimonials_count = await db.testimonials.count_documents({})
     if testimonials_count == 0:
         default_testimonials = [
             {
                 "testimonial_id": "test_1",
-                "client_name": "Priya M.",
-                "content": "My daughter's motor skills have improved tremendously after just 3 months of therapy. The therapists are so patient and caring with children.",
-                "rating": 5,
+                "client_name": "Our Vision",
+                "content": "Built on hands-on clinical experience and a patient-first approach. We're excited to bring personalised paediatric and women's wellness care to our community.",
+                "rating": 0,
                 "is_visible": True,
+                "is_prelaunch": True,
                 "order": 1,
                 "created_at": datetime.now(timezone.utc).isoformat(),
                 "deleted_at": None
             },
             {
                 "testimonial_id": "test_2",
-                "client_name": "Anita S.",
-                "content": "The PCOD program has been life-changing. I've lost 8 kgs and my symptoms have reduced significantly. The nutritionist and trainer work so well together!",
-                "rating": 5,
+                "client_name": "Our Promise",
+                "content": "Designed to deliver structured, ethical, and personalised care. We look forward to sharing real client experiences after our official launch in 2026.",
+                "rating": 0,
                 "is_visible": True,
+                "is_prelaunch": True,
                 "order": 2,
                 "created_at": datetime.now(timezone.utc).isoformat(),
                 "deleted_at": None
             },
             {
                 "testimonial_id": "test_3",
-                "client_name": "Kavitha R.",
-                "content": "I love the Zumba classes! The instructors make it fun and the timing works perfectly with my schedule. Great facilities and very clean.",
-                "rating": 5,
+                "client_name": "Coming Soon",
+                "content": "Excited to begin our wellness journey here. Testimonials will be shared as our story unfolds starting 2026.",
+                "rating": 0,
                 "is_visible": True,
+                "is_prelaunch": True,
                 "order": 3,
                 "created_at": datetime.now(timezone.utc).isoformat(),
                 "deleted_at": None
             }
         ]
         await db.testimonials.insert_many(default_testimonials)
-        logger.info("Seeded default testimonials")
+        logger.info("Seeded pre-launch testimonials")
     
     # Create default admin
     admin_exists = await db.users.find_one({"role": UserRole.ADMIN.value, "deleted_at": None})
