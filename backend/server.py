@@ -2738,22 +2738,102 @@ async def startup_db():
         await db.testimonials.insert_many(default_testimonials)
         logger.info("Seeded pre-launch testimonials")
     
-    # Create default admin
-    admin_exists = await db.users.find_one({"role": UserRole.ADMIN.value, "deleted_at": None})
-    if not admin_exists:
-        admin_user = {
+    # Create demo users for all roles
+    demo_users = [
+        {
             "user_id": "user_admin001",
-            "email": "admin@mazharwellness.com",
-            "name": "Admin",
+            "email": "admin@demo.com",
+            "name": "Admin Demo",
             "role": UserRole.ADMIN.value,
-            "password_hash": hash_password("admin123"),
+            "password_hash": hash_password("Demo@12345"),
+            "is_active": True,
+            "created_at": datetime.now(timezone.utc).isoformat(),
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+            "deleted_at": None
+        },
+        {
+            "user_id": "user_reception001",
+            "email": "reception@demo.com",
+            "name": "Reception Demo",
+            "role": UserRole.RECEPTION.value,
+            "password_hash": hash_password("Demo@12345"),
+            "is_active": True,
+            "created_at": datetime.now(timezone.utc).isoformat(),
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+            "deleted_at": None
+        },
+        {
+            "user_id": "user_physio001",
+            "email": "physio@demo.com",
+            "name": "Dr. Physio Demo",
+            "role": UserRole.PHYSIOTHERAPIST.value,
+            "password_hash": hash_password("Demo@12345"),
+            "is_active": True,
+            "created_at": datetime.now(timezone.utc).isoformat(),
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+            "deleted_at": None
+        },
+        {
+            "user_id": "user_trainer001",
+            "email": "trainer@demo.com",
+            "name": "Trainer Demo",
+            "role": UserRole.TRAINER.value,
+            "password_hash": hash_password("Demo@12345"),
+            "is_active": True,
+            "created_at": datetime.now(timezone.utc).isoformat(),
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+            "deleted_at": None
+        },
+        {
+            "user_id": "user_nutrition001",
+            "email": "nutrition@demo.com",
+            "name": "Nutritionist Demo",
+            "role": UserRole.NUTRITIONIST.value,
+            "password_hash": hash_password("Demo@12345"),
+            "is_active": True,
+            "created_at": datetime.now(timezone.utc).isoformat(),
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+            "deleted_at": None
+        },
+        {
+            "user_id": "user_client001",
+            "email": "client@demo.com",
+            "name": "Client Demo",
+            "role": UserRole.CLIENT.value,
+            "password_hash": hash_password("Demo@12345"),
             "is_active": True,
             "created_at": datetime.now(timezone.utc).isoformat(),
             "updated_at": datetime.now(timezone.utc).isoformat(),
             "deleted_at": None
         }
-        await db.users.insert_one(admin_user)
-        logger.info("Created default admin user")
+    ]
+    
+    for demo_user in demo_users:
+        existing = await db.users.find_one({"email": demo_user["email"]})
+        if not existing:
+            await db.users.insert_one(demo_user)
+            logger.info(f"Created demo user: {demo_user['email']}")
+            
+            # Create client profile for client demo user
+            if demo_user["role"] == UserRole.CLIENT.value:
+                client_profile = {
+                    "profile_id": f"prof_{demo_user['user_id']}",
+                    "user_id": demo_user["user_id"],
+                    "client_type": "woman",
+                    "goal": "Weight Loss & Fitness",
+                    "pcod_tracking": True,
+                    "preferred_batch": "Morning",
+                    "assigned_trainer": "user_trainer001",
+                    "assigned_nutritionist": "user_nutrition001",
+                    "assigned_physio": "user_physio001",
+                    "created_at": datetime.now(timezone.utc).isoformat()
+                }
+                await db.client_profiles.update_one(
+                    {"user_id": demo_user["user_id"]},
+                    {"$set": client_profile},
+                    upsert=True
+                )
+                logger.info("Created client profile for demo client")
     
     # Create default system settings
     settings_exists = await db.settings.find_one({"setting_id": "settings_main"})
