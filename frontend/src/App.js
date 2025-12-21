@@ -153,40 +153,6 @@ const AppRouter = () => {
   );
 };
 
-// Placeholder Dashboard for other roles
-const DashboardPlaceholder = ({ role }) => {
-  const { user, logout } = useAuth();
-  
-  return (
-    <div className="min-h-screen bg-[#F8FAFC] flex items-center justify-center p-4">
-      <div className="max-w-md w-full bg-white rounded-3xl shadow-lg p-8 text-center">
-        <div className="w-16 h-16 rounded-2xl bg-[#2A9D8F] flex items-center justify-center mx-auto mb-6">
-          <span className="text-white font-heading font-bold text-2xl">M</span>
-        </div>
-        <h1 className="font-heading font-bold text-2xl text-slate-900 mb-2">
-          {role} Dashboard
-        </h1>
-        <p className="text-slate-600 mb-6">
-          Welcome, {user?.name}! The {role.toLowerCase()} dashboard is coming soon.
-        </p>
-        <div className="space-y-3">
-          <a href="/">
-            <button className="w-full h-12 rounded-full bg-[#2A9D8F] hover:bg-[#21867a] text-white font-bold transition-colors">
-              Back to Home
-            </button>
-          </a>
-          <button 
-            onClick={logout}
-            className="w-full h-12 rounded-full border-2 border-slate-200 hover:border-red-200 hover:bg-red-50 text-slate-700 hover:text-red-600 font-bold transition-colors"
-          >
-            Logout
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-};
-
 // 404 Page
 const NotFound = () => {
   return (
