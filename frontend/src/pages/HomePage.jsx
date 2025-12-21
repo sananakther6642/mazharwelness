@@ -78,7 +78,7 @@ const HomePage = () => {
             <div className="animate-fadeInUp">
               <Badge className="mb-6 bg-[#E0F2F1] text-[#2A9D8F] hover:bg-[#E0F2F1] rounded-full px-4 py-1.5">
                 <Leaf className="w-4 h-4 mr-2" />
-                Trusted by 5000+ Families
+                Launching 2026
               </Badge>
               
               <h1 className="font-heading font-extrabold text-4xl sm:text-5xl lg:text-6xl text-slate-900 leading-tight mb-6">
