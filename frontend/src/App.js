@@ -14,6 +14,11 @@ import ContactPage from './pages/ContactPage';
 import PricingPage from './pages/PricingPage';
 import GalleryPage from './pages/GalleryPage';
 import ClientDashboard from './pages/ClientDashboard';
+import AdminDashboard from './pages/AdminDashboard';
+import ReceptionDashboard from './pages/ReceptionDashboard';
+import PhysioDashboard from './pages/PhysioDashboard';
+import TrainerDashboard from './pages/TrainerDashboard';
+import NutritionDashboard from './pages/NutritionDashboard';
 
 // Protected Route Component
 const ProtectedRoute = ({ children, allowedRoles = [] }) => {
