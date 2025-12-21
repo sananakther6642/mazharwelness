@@ -55,10 +55,10 @@ const AboutPage = () => {
   ];
 
   const milestones = [
-    { year: '2014', title: 'Founded', description: 'Started with a vision to transform healthcare' },
-    { year: '2017', title: "Women's Wing", description: 'Expanded to include fitness and PCOD programs' },
-    { year: '2020', title: 'Online Services', description: 'Launched telehealth consultations' },
-    { year: '2024', title: '5000+ Clients', description: 'Reached milestone of helping 5000 families' },
+    { year: '2025', title: 'Professional Practice Begins', description: 'Started physiotherapy practice with a focus on paediatric care' },
+    { year: '2026', title: 'Mazhar Wellness Established', description: 'Clinic officially opens with comprehensive wellness services' },
+    { year: '2026', title: "Women's Wellness Programs", description: 'Introducing fitness and PCOD management programs' },
+    { year: '2026', title: 'Digital Care Launch', description: 'Online consultations and digital health services go live' },
   ];
 
   return (
