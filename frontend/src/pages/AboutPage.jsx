@@ -274,7 +274,7 @@ const AboutPage = () => {
             Ready to Start Your Journey?
           </h2>
           <p className="text-white/80 mb-8">
-            Join thousands of happy clients who have transformed their health with us.
+            Be among the first to experience our personalized wellness programs when we launch in 2026.
           </p>
           <Link to="/book">
             <Button 
