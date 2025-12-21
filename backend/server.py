@@ -2828,9 +2828,9 @@ async def startup_db():
                     "goal": "Weight Loss & Fitness",
                     "pcod_tracking": True,
                     "preferred_batch": "Morning",
-                    "assigned_trainer": "user_trainer001",
-                    "assigned_nutritionist": "user_nutrition001",
-                    "assigned_physio": "user_physio001",
+                    "assigned_trainer": "user_demo_trainer",
+                    "assigned_nutritionist": "user_demo_nutrition",
+                    "assigned_physio": "user_demo_physio",
                     "created_at": datetime.now(timezone.utc).isoformat()
                 }
                 await db.client_profiles.update_one(
