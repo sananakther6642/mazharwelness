@@ -1,4 +1,4 @@
-from fastapi import FastAPI, APIRouter, HTTPException, Depends, Request, Response
+from fastapi import FastAPI, APIRouter, HTTPException, Depends, Request, Response, Query, Body
 from fastapi.responses import JSONResponse
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
@@ -6,31 +6,44 @@ from motor.motor_asyncio import AsyncIOMotorClient
 import os
 import logging
 from pathlib import Path
-from typing import List, Optional
+from typing import List, Optional, Dict, Any
 from datetime import datetime, timezone, timedelta
 import httpx
+import random
+import string
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
 
 from models import (
-    User, UserCreate, UserLogin, UserRole, UserSession,
-    ClientProfile, ClientType, ParentProfile, WomanProfile,
-    StaffProfile, Service, ServiceCategory, ServiceBase,
-    Package, PackageBase, GuestBooking, GuestBookingCreate,
+    User, UserCreate, UserLogin, UserRole, OTPRequest, OTPVerify,
+    ClientProfile, ClientType, ParentProfileCreate, WomanProfileCreate,
+    StaffProfile, StaffProfileCreate,
+    Service, ServiceCategory, ServiceBase,
+    Package, PackageBase, 
+    GuestBooking, GuestBookingCreate, GuestBookingStatus, GuestBookingConvert,
     Appointment, AppointmentCreate, AppointmentStatus,
-    Membership, MembershipCreate, Invoice, InvoiceCreate, InvoiceItem,
-    Payment, PaymentCreate, PaymentStatus,
-    Assessment, AssessmentCreate, TreatmentPlan, TreatmentPlanCreate,
-    DailyNote, Exercise, ExerciseCreate, ExerciseAssignment,
-    DietPlan, DietPlanCreate, WorkoutPlan, WorkoutPlanCreate,
-    ProgressMetric, AttendanceLog, Message, Notification,
-    Testimonial, FAQ, GalleryImage
+    Membership, MembershipCreate, 
+    Invoice, InvoiceCreate, InvoiceItem, Payment, PaymentCreate, PaymentStatus, Receipt,
+    Assessment, AssessmentCreate, AssessmentType,
+    TreatmentPlan, TreatmentPlanCreate,
+    DailyNote, DailyNoteCreate,
+    Exercise, ExerciseCreate, ExerciseCategory, ExerciseAssignment, ExerciseAssignmentCreate,
+    DietPlan, DietPlanCreate, DietPlanType,
+    WorkoutPlan, WorkoutPlanCreate,
+    ProgressMetric, ProgressMetricCreate, MetricType,
+    AttendanceLog, Message, Conversation,
+    Notification, NotificationType, NotificationTemplate,
+    Consultation,
+    Testimonial, FAQ, GalleryImage,
+    AuditLog, AuditAction, SystemSettings
 )
 from auth import (
     hash_password, verify_password, create_jwt_token, decode_jwt_token,
-    get_current_user, require_roles, can_access_finance, can_manage_staff,
-    can_delete_records, can_change_pricing
+    get_current_user, get_optional_user, require_roles, require_any_staff,
+    Permissions, create_audit_log, soft_delete, exclude_deleted,
+    lock_medical_record, check_record_editable, verify_client_access,
+    get_assigned_clients
 )
 
 # MongoDB connection
@@ -52,7 +65,32 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
+# ============ UTILITY FUNCTIONS ============
+
+def serialize_datetime(obj):
+    """Convert datetime objects to ISO strings"""
+    if isinstance(obj, datetime):
+        return obj.isoformat()
+    return obj
+
+
+def prepare_for_db(data: dict) -> dict:
+    """Prepare data for MongoDB insertion"""
+    result = {}
+    for key, value in data.items():
+        if isinstance(value, datetime):
+            result[key] = value.isoformat()
+        elif isinstance(value, dict):
+            result[key] = prepare_for_db(value)
+        elif isinstance(value, list):
+            result[key] = [prepare_for_db(v) if isinstance(v, dict) else serialize_datetime(v) for v in value]
+        else:
+            result[key] = value
+    return result
+
+
 # ============ HEALTH CHECK ============
+
 @api_router.get("/")
 async def root():
     return {"message": "Mazhar Wellness API", "status": "healthy"}
@@ -66,28 +104,32 @@ async def health_check():
 # ============ AUTH ROUTES ============
 
 @api_router.post("/auth/register")
-async def register(user_data: UserCreate):
+async def register(user_data: UserCreate, request: Request):
     """Register a new user"""
-    # Check if email exists
-    existing = await db.users.find_one({"email": user_data.email}, {"_id": 0})
+    existing = await db.users.find_one({"email": user_data.email, "deleted_at": None}, {"_id": 0})
     if existing:
         raise HTTPException(status_code=400, detail="Email already registered")
     
-    # Create user
     user = User(
         email=user_data.email,
         name=user_data.name,
         phone=user_data.phone,
         role=user_data.role
     )
-    user_dict = user.model_dump()
+    user_dict = prepare_for_db(user.model_dump())
     user_dict["password_hash"] = hash_password(user_data.password)
-    user_dict["created_at"] = user_dict["created_at"].isoformat()
-    user_dict["updated_at"] = user_dict["updated_at"].isoformat()
     
     await db.users.insert_one(user_dict)
     
-    # Create JWT token
+    # Create audit log
+    await create_audit_log(
+        db, 
+        {"user_id": user.user_id, "email": user.email, "role": user.role.value,
+         "_request_ip": request.client.host if request.client else None},
+        AuditAction.CREATE, "users", user.user_id,
+        new_value={"email": user.email, "role": user.role.value}
+    )
+    
     token = create_jwt_token(user.user_id, user.email, user.role.value)
     
     return {
@@ -102,9 +144,12 @@ async def register(user_data: UserCreate):
 
 
 @api_router.post("/auth/login")
-async def login(credentials: UserLogin, response: Response):
+async def login(credentials: UserLogin, request: Request, response: Response):
     """Login with email and password"""
-    user = await db.users.find_one({"email": credentials.email}, {"_id": 0})
+    user = await db.users.find_one(
+        {"email": credentials.email, "deleted_at": None}, 
+        {"_id": 0}
+    )
     if not user:
         raise HTTPException(status_code=401, detail="Invalid credentials")
     
@@ -114,17 +159,23 @@ async def login(credentials: UserLogin, response: Response):
     if not user.get("is_active", True):
         raise HTTPException(status_code=401, detail="Account is disabled")
     
-    # Create JWT token
     token = create_jwt_token(user["user_id"], user["email"], user["role"])
     
-    # Set cookie
+    # Create audit log
+    await create_audit_log(
+        db,
+        {"user_id": user["user_id"], "email": user["email"], "role": user["role"],
+         "_request_ip": request.client.host if request.client else None},
+        AuditAction.LOGIN, "users", user["user_id"]
+    )
+    
     response.set_cookie(
         key="session_token",
         value=token,
         httponly=True,
         secure=True,
         samesite="none",
-        max_age=7 * 24 * 60 * 60,  # 7 days
+        max_age=7 * 24 * 60 * 60,
         path="/"
     )
     
@@ -141,17 +192,97 @@ async def login(credentials: UserLogin, response: Response):
     }
 
 
+@api_router.post("/auth/login/otp/send")
+async def send_otp(otp_request: OTPRequest):
+    """Send OTP for phone login"""
+    # Check if phone exists
+    user = await db.users.find_one(
+        {"phone": otp_request.phone, "deleted_at": None},
+        {"_id": 0}
+    )
+    if not user:
+        raise HTTPException(status_code=404, detail="Phone number not registered")
+    
+    # Generate OTP
+    otp = ''.join(random.choices(string.digits, k=6))
+    expires_at = datetime.now(timezone.utc) + timedelta(minutes=5)
+    
+    # Store OTP
+    await db.otp_codes.insert_one({
+        "phone": otp_request.phone,
+        "otp": otp,
+        "expires_at": expires_at.isoformat(),
+        "used": False
+    })
+    
+    # TODO: Send OTP via Twilio SMS
+    logger.info(f"OTP for {otp_request.phone}: {otp}")  # For dev only
+    
+    return {"message": "OTP sent successfully", "expires_in": 300}
+
+
+@api_router.post("/auth/login/otp/verify")
+async def verify_otp(otp_verify: OTPVerify, request: Request, response: Response):
+    """Verify OTP and login"""
+    # Find OTP
+    otp_record = await db.otp_codes.find_one({
+        "phone": otp_verify.phone,
+        "otp": otp_verify.otp,
+        "used": False
+    })
+    
+    if not otp_record:
+        raise HTTPException(status_code=401, detail="Invalid OTP")
+    
+    # Check expiry
+    expires_at = datetime.fromisoformat(otp_record["expires_at"])
+    if datetime.now(timezone.utc) > expires_at:
+        raise HTTPException(status_code=401, detail="OTP expired")
+    
+    # Mark OTP as used
+    await db.otp_codes.update_one(
+        {"_id": otp_record["_id"]},
+        {"$set": {"used": True}}
+    )
+    
+    # Get user
+    user = await db.users.find_one(
+        {"phone": otp_verify.phone, "deleted_at": None},
+        {"_id": 0}
+    )
+    
+    token = create_jwt_token(user["user_id"], user["email"], user["role"])
+    
+    response.set_cookie(
+        key="session_token",
+        value=token,
+        httponly=True,
+        secure=True,
+        samesite="none",
+        max_age=7 * 24 * 60 * 60,
+        path="/"
+    )
+    
+    return {
+        "user": {
+            "user_id": user["user_id"],
+            "email": user["email"],
+            "name": user["name"],
+            "role": user["role"]
+        },
+        "token": token
+    }
+
+
 @api_router.post("/auth/google/session")
 async def google_session(request: Request, response: Response):
     """Process Google OAuth session from Emergent Auth"""
-    # REMINDER: DO NOT HARDCODE THE URL, OR ADD ANY FALLBACKS OR REDIRECT URLS, THIS BREAKS THE AUTH
     body = await request.json()
     session_id = body.get("session_id")
     
     if not session_id:
         raise HTTPException(status_code=400, detail="session_id is required")
     
-    # Call Emergent Auth to get user data
     async with httpx.AsyncClient() as http_client:
         try:
             auth_response = await http_client.get(
@@ -170,11 +301,9 @@ async def google_session(request: Request, response: Response):
     name = auth_data.get("name")
     picture = auth_data.get("picture")
     
-    # Check if user exists
-    existing_user = await db.users.find_one({"email": email}, {"_id": 0})
+    existing_user = await db.users.find_one({"email": email, "deleted_at": None}, {"_id": 0})
     
     if existing_user:
-        # Update existing user
         await db.users.update_one(
             {"email": email},
             {"$set": {"name": name, "picture": picture, "updated_at": datetime.now(timezone.utc).isoformat()}}
@@ -182,24 +311,28 @@ async def google_session(request: Request, response: Response):
         user_id = existing_user["user_id"]
         role = existing_user["role"]
     else:
-        # Create new user
         user = User(
             email=email,
             name=name,
             picture=picture,
             role=UserRole.CLIENT
         )
-        user_dict = user.model_dump()
-        user_dict["created_at"] = user_dict["created_at"].isoformat()
-        user_dict["updated_at"] = user_dict["updated_at"].isoformat()
+        user_dict = prepare_for_db(user.model_dump())
         await db.users.insert_one(user_dict)
         user_id = user.user_id
         role = UserRole.CLIENT.value
     
-    # Create JWT token
     token = create_jwt_token(user_id, email, role)
     
-    # Set cookie
+    # Audit log
+    await create_audit_log(
+        db,
+        {"user_id": user_id, "email": email, "role": role,
+         "_request_ip": request.client.host if request.client else None},
+        AuditAction.LOGIN, "users", user_id,
+        new_value={"method": "google_oauth"}
+    )
+    
     response.set_cookie(
         key="session_token",
         value=token,
@@ -225,62 +358,80 @@ async def google_session(request: Request, response: Response):
 @api_router.get("/auth/me")
 async def get_me(current_user: dict = Depends(get_current_user)):
     """Get current authenticated user"""
-    user = await db.users.find_one({"user_id": current_user["user_id"]}, {"_id": 0, "password_hash": 0})
+    user = await db.users.find_one(
+        {"user_id": current_user["user_id"], "deleted_at": None}, 
+        {"_id": 0, "password_hash": 0}
+    )
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
     return user
 
 
 @api_router.post("/auth/logout")
-async def logout(response: Response):
+async def logout(request: Request, response: Response, current_user: dict = Depends(get_optional_user)):
     """Logout user"""
+    if current_user:
+        await create_audit_log(
+            db, current_user, AuditAction.LOGOUT, "users", current_user["user_id"]
+        )
+    
     response.delete_cookie(key="session_token", path="/")
     return {"message": "Logged out successfully"}
 
 
-# ============ CLIENT REGISTRATION ============
+# ============ CLIENT REGISTRATION & PROFILES ============
 
 @api_router.post("/clients/register/parent")
-async def register_parent(profile: ParentProfile, current_user: dict = Depends(get_current_user)):
-    """Register parent client profile (for paediatric)"""
+async def register_parent(profile: ParentProfileCreate, current_user: dict = Depends(get_current_user)):
+    """Register parent client profile"""
+    existing = await db.client_profiles.find_one({"user_id": current_user["user_id"]})
+    if existing:
+        raise HTTPException(status_code=400, detail="Profile already exists")
+    
     client_profile = ClientProfile(
         user_id=current_user["user_id"],
         client_type=ClientType.PARENT,
         child_name=profile.child_name,
         child_age=profile.child_age,
         child_condition=profile.child_condition,
+        child_dob=profile.child_dob,
         height_cm=profile.height_cm,
         weight_kg=profile.weight_kg,
         goal=profile.goal,
         medical_conditions=profile.medical_conditions,
-        emergency_contact=profile.emergency_contact
+        emergency_contact=profile.emergency_contact,
+        emergency_phone=profile.emergency_phone
     )
     
-    profile_dict = client_profile.model_dump()
-    profile_dict["created_at"] = profile_dict["created_at"].isoformat()
+    profile_dict = prepare_for_db(client_profile.model_dump())
     await db.client_profiles.insert_one(profile_dict)
     
     return {"profile_id": client_profile.profile_id, "message": "Parent profile created"}
 
 
 @api_router.post("/clients/register/woman")
-async def register_woman(profile: WomanProfile, current_user: dict = Depends(get_current_user)):
-    """Register woman client profile (for fitness/PCOD)"""
+async def register_woman(profile: WomanProfileCreate, current_user: dict = Depends(get_current_user)):
+    """Register woman client profile"""
+    existing = await db.client_profiles.find_one({"user_id": current_user["user_id"]})
+    if existing:
+        raise HTTPException(status_code=400, detail="Profile already exists")
+    
     client_profile = ClientProfile(
         user_id=current_user["user_id"],
         client_type=ClientType.WOMAN,
         age=profile.age,
         pcod_tracking=profile.pcod_tracking,
+        cycle_tracking_consent=profile.cycle_tracking_consent,
         height_cm=profile.height_cm,
         weight_kg=profile.weight_kg,
         goal=profile.goal,
         preferred_batch=profile.preferred_batch,
         medical_conditions=profile.medical_conditions,
-        emergency_contact=profile.emergency_contact
+        emergency_contact=profile.emergency_contact,
+        emergency_phone=profile.emergency_phone
     )
     
-    profile_dict = client_profile.model_dump()
-    profile_dict["created_at"] = profile_dict["created_at"].isoformat()
+    profile_dict = prepare_for_db(client_profile.model_dump())
     await db.client_profiles.insert_one(profile_dict)
     
     return {"profile_id": client_profile.profile_id, "message": "Woman profile created"}
@@ -296,18 +447,122 @@ async def get_client_profile(current_user: dict = Depends(get_current_user)):
     return profile
 
 
-# ============ GUEST BOOKING (NO AUTH) ============
+@api_router.get("/clients")
+async def get_clients(
+    search: Optional[str] = None,
+    client_type: Optional[str] = None,
+    current_user: dict = Depends(require_roles(UserRole.ADMIN, UserRole.RECEPTION))
+):
+    """Get all clients (Admin/Reception only)"""
+    query = exclude_deleted({"role": UserRole.CLIENT.value})
+    if search:
+        query["$or"] = [
+            {"name": {"$regex": search, "$options": "i"}},
+            {"email": {"$regex": search, "$options": "i"}},
+            {"phone": {"$regex": search, "$options": "i"}}
+        ]
+    
+    clients = await db.users.find(query, {"_id": 0, "password_hash": 0}).to_list(500)
+    
+    # Enrich with profiles
+    for client in clients:
+        profile = await db.client_profiles.find_one(
+            {"user_id": client["user_id"]},
+            {"_id": 0}
+        )
+        client["profile"] = profile
+        
+        if client_type and profile and profile.get("client_type") != client_type:
+            clients.remove(client)
+    
+    return clients
+
+
+@api_router.get("/clients/{client_id}")
+async def get_client_detail(
+    client_id: str,
+    current_user: dict = Depends(get_current_user)
+):
+    """Get client details with profile"""
+    await verify_client_access(db, current_user, client_id)
+    
+    user = await db.users.find_one(
+        {"user_id": client_id, "deleted_at": None},
+        {"_id": 0, "password_hash": 0}
+    )
+    if not user:
+        raise HTTPException(status_code=404, detail="Client not found")
+    
+    profile = await db.client_profiles.find_one(
+        {"user_id": client_id},
+        {"_id": 0}
+    )
+    
+    user["profile"] = profile
+    return user
+
+
+@api_router.put("/clients/{client_id}/assign-staff")
+async def assign_staff_to_client(
+    client_id: str,
+    staff_id: str = Query(...),
+    staff_role: str = Query(...),  # physio, trainer, nutritionist
+    current_user: dict = Depends(require_roles(UserRole.ADMIN, UserRole.RECEPTION))
+):
+    """Assign staff to client"""
+    field_map = {
+        "physio": "assigned_physio",
+        "physiotherapist": "assigned_physio",
+        "trainer": "assigned_trainer",
+        "nutritionist": "assigned_nutritionist"
+    }
+    
+    field = field_map.get(staff_role.lower())
+    if not field:
+        raise HTTPException(status_code=400, detail="Invalid staff role")
+    
+    # Verify staff exists and has correct role
+    staff = await db.users.find_one(
+        {"user_id": staff_id, "deleted_at": None},
+        {"_id": 0}
+    )
+    if not staff:
+        raise HTTPException(status_code=404, detail="Staff not found")
+    
+    result = await db.client_profiles.update_one(
+        {"user_id": client_id},
+        {"$set": {field: staff_id, "updated_at": datetime.now(timezone.utc).isoformat()}}
+    )
+    
+    if result.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Client profile not found")
+    
+    await create_audit_log(
+        db, current_user, AuditAction.UPDATE, "client_profiles", client_id,
+        new_value={field: staff_id}
+    )
+    
+    return {"message": f"Staff assigned successfully"}
+
+
+# ============ GUEST BOOKING ============
 
 @api_router.post("/guest/booking")
-async def create_guest_booking(booking: GuestBookingCreate):
-    """Create a guest booking (no authentication required)"""
+async def create_guest_booking(booking: GuestBookingCreate, request: Request):
+    """Create a guest booking (no auth required)"""
     guest_booking = GuestBooking(**booking.model_dump())
-    booking_dict = guest_booking.model_dump()
-    booking_dict["created_at"] = booking_dict["created_at"].isoformat()
+    booking_dict = prepare_for_db(guest_booking.model_dump())
     
     await db.guest_bookings.insert_one(booking_dict)
     
-    # TODO: Send notification to reception/admin (Twilio integration)
+    # Create notification for reception/admin
+    notification = Notification(
+        user_id="admin_broadcast",
+        title="New Guest Booking",
+        message=f"New booking from {booking.full_name} for {booking.service_category.value}",
+        notification_type=NotificationType.APPOINTMENT
+    )
+    await db.notifications.insert_one(prepare_for_db(notification.model_dump()))
     
     return {
         "booking_id": guest_booking.booking_id,
@@ -318,39 +573,159 @@ async def create_guest_booking(booking: GuestBookingCreate):
 @api_router.get("/guest/bookings")
 async def get_guest_bookings(
     status: Optional[str] = None,
+    date_from: Optional[str] = None,
+    date_to: Optional[str] = None,
     current_user: dict = Depends(require_roles(UserRole.ADMIN, UserRole.RECEPTION))
 ):
-    """Get all guest bookings (Admin/Reception only)"""
-    query = {}
+    """Get all guest bookings"""
+    query = exclude_deleted()
     if status:
         query["status"] = status
+    if date_from:
+        query["preferred_date"] = {"$gte": date_from}
+    if date_to:
+        query.setdefault("preferred_date", {})["$lte"] = date_to
     
     bookings = await db.guest_bookings.find(query, {"_id": 0}).sort("created_at", -1).to_list(1000)
     return bookings
 
 
-@api_router.put("/guest/bookings/{booking_id}")
-async def update_guest_booking(
+@api_router.put("/guest/bookings/{booking_id}/status")
+async def update_guest_booking_status(
     booking_id: str,
-    status: str,
+    status: GuestBookingStatus,
     notes: Optional[str] = None,
     current_user: dict = Depends(require_roles(UserRole.ADMIN, UserRole.RECEPTION))
 ):
     """Update guest booking status"""
-    update_data = {"status": status}
+    booking = await db.guest_bookings.find_one({"booking_id": booking_id}, {"_id": 0})
+    if not booking:
+        raise HTTPException(status_code=404, detail="Booking not found")
+    
+    update_data = {
+        "status": status.value,
+        "assigned_to": current_user["user_id"]
+    }
     if notes:
         update_data["notes"] = notes
-    update_data["assigned_to"] = current_user["user_id"]
     
-    result = await db.guest_bookings.update_one(
+    await db.guest_bookings.update_one(
         {"booking_id": booking_id},
         {"$set": update_data}
     )
     
-    if result.matched_count == 0:
-        raise HTTPException(status_code=404, detail="Booking not found")
+    await create_audit_log(
+        db, current_user, AuditAction.UPDATE, "guest_bookings", booking_id,
+        old_value={"status": booking.get("status")},
+        new_value={"status": status.value}
+    )
     
     return {"message": "Booking updated"}
+
+
+@api_router.post("/guest/bookings/{booking_id}/convert")
+async def convert_guest_to_client(
+    booking_id: str,
+    conversion_data: GuestBookingConvert,
+    current_user: dict = Depends(require_roles(UserRole.ADMIN, UserRole.RECEPTION))
+):
+    """Convert guest booking to registered client"""
+    # Get booking
+    booking = await db.guest_bookings.find_one(
+        {"booking_id": booking_id, "deleted_at": None},
+        {"_id": 0}
+    )
+    if not booking:
+        raise HTTPException(status_code=404, detail="Booking not found")
+    
+    if booking.get("status") == GuestBookingStatus.CONVERTED.value:
+        raise HTTPException(status_code=400, detail="Booking already converted")
+    
+    # Check if email exists
+    existing = await db.users.find_one({"email": conversion_data.email, "deleted_at": None})
+    if existing:
+        raise HTTPException(status_code=400, detail="Email already registered")
+    
+    # Create user
+    user = User(
+        email=conversion_data.email,
+        name=booking["full_name"],
+        phone=booking["phone"],
+        role=UserRole.CLIENT
+    )
+    user_dict = prepare_for_db(user.model_dump())
+    
+    if conversion_data.password:
+        user_dict["password_hash"] = hash_password(conversion_data.password)
+    
+    await db.users.insert_one(user_dict)
+    
+    # Create profile
+    profile_data = {
+        "user_id": user.user_id,
+        "client_type": conversion_data.client_type.value,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "updated_at": datetime.now(timezone.utc).isoformat()
+    }
+    
+    if conversion_data.client_type == ClientType.PARENT:
+        profile_data["child_name"] = conversion_data.child_name
+        profile_data["child_age"] = conversion_data.child_age
+    else:
+        profile_data["age"] = conversion_data.age
+    
+    if conversion_data.assign_staff_id:
+        # Determine staff role
+        staff = await db.users.find_one({"user_id": conversion_data.assign_staff_id}, {"_id": 0})
+        if staff:
+            role_field_map = {
+                UserRole.PHYSIOTHERAPIST.value: "assigned_physio",
+                UserRole.TRAINER.value: "assigned_trainer",
+                UserRole.NUTRITIONIST.value: "assigned_nutritionist"
+            }
+            field = role_field_map.get(staff["role"])
+            if field:
+                profile_data[field] = conversion_data.assign_staff_id
+    
+    profile = ClientProfile(**profile_data)
+    await db.client_profiles.insert_one(prepare_for_db(profile.model_dump()))
+    
+    # Update booking status
+    await db.guest_bookings.update_one(
+        {"booking_id": booking_id},
+        {"$set": {
+            "status": GuestBookingStatus.CONVERTED.value,
+            "converted_to_user_id": user.user_id,
+            "converted_at": datetime.now(timezone.utc).isoformat()
+        }}
+    )
+    
+    result = {
+        "user_id": user.user_id,
+        "profile_id": profile.profile_id,
+        "message": "Client created successfully"
+    }
+    
+    # Create appointment if requested
+    if conversion_data.schedule_appointment:
+        apt_data = conversion_data.schedule_appointment
+        appointment = Appointment(
+            client_id=user.user_id,
+            service_id=apt_data.get("service_id"),
+            staff_id=apt_data.get("staff_id", conversion_data.assign_staff_id),
+            scheduled_date=apt_data.get("scheduled_date"),
+            scheduled_time=apt_data.get("scheduled_time"),
+            created_by=current_user["user_id"]
+        )
+        await db.appointments.insert_one(prepare_for_db(appointment.model_dump()))
+        result["appointment_id"] = appointment.appointment_id
+    
+    await create_audit_log(
+        db, current_user, AuditAction.CREATE, "users", user.user_id,
+        new_value={"converted_from_booking": booking_id}
+    )
+    
+    return result
 
 
 # ============ SERVICES ============
@@ -358,7 +733,7 @@ async def update_guest_booking(
 @api_router.get("/services")
 async def get_services(category: Optional[str] = None):
     """Get all active services (public)"""
-    query = {"is_active": True}
+    query = exclude_deleted({"is_active": True})
     if category:
         query["category"] = category
     
@@ -372,11 +747,14 @@ async def create_service(
     current_user: dict = Depends(require_roles(UserRole.ADMIN))
 ):
     """Create a new service (Admin only)"""
-    service = Service(**service_data.model_dump())
-    service_dict = service.model_dump()
-    service_dict["created_at"] = service_dict["created_at"].isoformat()
+    service = Service(**service_data.model_dump(), created_by=current_user["user_id"])
+    await db.services.insert_one(prepare_for_db(service.model_dump()))
     
-    await db.services.insert_one(service_dict)
+    await create_audit_log(
+        db, current_user, AuditAction.CREATE, "services", service.service_id,
+        new_value={"name": service.name, "price": service.price}
+    )
+    
     return {"service_id": service.service_id, "message": "Service created"}
 
 
@@ -387,15 +765,34 @@ async def update_service(
     current_user: dict = Depends(require_roles(UserRole.ADMIN))
 ):
     """Update a service (Admin only)"""
-    result = await db.services.update_one(
+    existing = await db.services.find_one({"service_id": service_id, "deleted_at": None}, {"_id": 0})
+    if not existing:
+        raise HTTPException(status_code=404, detail="Service not found")
+    
+    # Check if price changed (audit important)
+    if existing.get("price") != service_data.price:
+        await create_audit_log(
+            db, current_user, AuditAction.UPDATE, "services", service_id,
+            old_value={"price": existing.get("price")},
+            new_value={"price": service_data.price}
+        )
+    
+    await db.services.update_one(
         {"service_id": service_id},
         {"$set": service_data.model_dump()}
     )
     
-    if result.matched_count == 0:
-        raise HTTPException(status_code=404, detail="Service not found")
-    
     return {"message": "Service updated"}
+
+
+@api_router.delete("/services/{service_id}")
+async def delete_service(
+    service_id: str,
+    current_user: dict = Depends(require_roles(UserRole.ADMIN))
+):
+    """Soft delete a service (Admin only)"""
+    await soft_delete(db, "services", "service_id", service_id, current_user)
+    return {"message": "Service deleted"}
 
 
 # ============ PACKAGES ============
@@ -403,7 +800,10 @@ async def update_service(
 @api_router.get("/packages")
 async def get_packages():
     """Get all active packages (public)"""
-    packages = await db.packages.find({"is_active": True}, {"_id": 0}).to_list(100)
+    packages = await db.packages.find(
+        exclude_deleted({"is_active": True}), 
+        {"_id": 0}
+    ).to_list(100)
     return packages
 
 
@@ -413,12 +813,25 @@ async def create_package(
     current_user: dict = Depends(require_roles(UserRole.ADMIN))
 ):
     """Create a new package (Admin only)"""
-    package = Package(**package_data.model_dump())
-    package_dict = package.model_dump()
-    package_dict["created_at"] = package_dict["created_at"].isoformat()
+    package = Package(**package_data.model_dump(), created_by=current_user["user_id"])
+    await db.packages.insert_one(prepare_for_db(package.model_dump()))
     
-    await db.packages.insert_one(package_dict)
+    await create_audit_log(
+        db, current_user, AuditAction.CREATE, "packages", package.package_id,
+        new_value={"name": package.name, "price": package.price}
+    )
+    
     return {"package_id": package.package_id, "message": "Package created"}
+
+
+@api_router.delete("/packages/{package_id}")
+async def delete_package(
+    package_id: str,
+    current_user: dict = Depends(require_roles(UserRole.ADMIN))
+):
+    """Soft delete a package (Admin only)"""
+    await soft_delete(db, "packages", "package_id", package_id, current_user)
+    return {"message": "Package deleted"}
 
 
 # ============ APPOINTMENTS ============
@@ -426,21 +839,28 @@ async def create_package(
 @api_router.post("/appointments")
 async def create_appointment(
     appointment_data: AppointmentCreate,
-    current_user: dict = Depends(require_roles(UserRole.ADMIN, UserRole.RECEPTION, UserRole.CLIENT))
+    current_user: dict = Depends(get_current_user)
 ):
     """Create a new appointment"""
-    # If client is creating, they can only book for themselves
+    # Client can only book for themselves
     if current_user["role"] == UserRole.CLIENT.value:
         appointment_data.client_id = current_user["user_id"]
     
-    appointment = Appointment(**appointment_data.model_dump())
-    appointment_dict = appointment.model_dump()
-    appointment_dict["created_at"] = appointment_dict["created_at"].isoformat()
-    appointment_dict["updated_at"] = appointment_dict["updated_at"].isoformat()
+    appointment = Appointment(
+        **appointment_data.model_dump(),
+        created_by=current_user["user_id"]
+    )
+    await db.appointments.insert_one(prepare_for_db(appointment.model_dump()))
     
-    await db.appointments.insert_one(appointment_dict)
-    
-    # TODO: Send notification to client and staff
+    # Create notification for client
+    notification = Notification(
+        user_id=appointment_data.client_id,
+        title="Appointment Scheduled",
+        message=f"Your appointment on {appointment_data.scheduled_date} at {appointment_data.scheduled_time} has been scheduled.",
+        notification_type=NotificationType.APPOINTMENT,
+        action_url=f"/dashboard/appointments/{appointment.appointment_id}"
+    )
+    await db.notifications.insert_one(prepare_for_db(notification.model_dump()))
     
     return {"appointment_id": appointment.appointment_id, "message": "Appointment created"}
 
@@ -451,10 +871,12 @@ async def get_appointments(
     staff_id: Optional[str] = None,
     status: Optional[str] = None,
     date: Optional[str] = None,
+    date_from: Optional[str] = None,
+    date_to: Optional[str] = None,
     current_user: dict = Depends(get_current_user)
 ):
     """Get appointments based on role"""
-    query = {}
+    query = exclude_deleted()
     
     role = current_user["role"]
     user_id = current_user["user_id"]
@@ -475,8 +897,27 @@ async def get_appointments(
         query["status"] = status
     if date:
         query["scheduled_date"] = date
+    if date_from:
+        query.setdefault("scheduled_date", {})
+        query["scheduled_date"]["$gte"] = date_from
+    if date_to:
+        query.setdefault("scheduled_date", {})
+        query["scheduled_date"]["$lte"] = date_to
     
     appointments = await db.appointments.find(query, {"_id": 0}).sort("scheduled_date", -1).to_list(1000)
+    
+    # Enrich with client and staff info
+    for apt in appointments:
+        client = await db.users.find_one({"user_id": apt["client_id"]}, {"_id": 0, "name": 1, "phone": 1})
+        apt["client_name"] = client.get("name") if client else "Unknown"
+        apt["client_phone"] = client.get("phone") if client else None
+        
+        staff = await db.users.find_one({"user_id": apt["staff_id"]}, {"_id": 0, "name": 1})
+        apt["staff_name"] = staff.get("name") if staff else "Unknown"
+        
+        service = await db.services.find_one({"service_id": apt["service_id"]}, {"_id": 0, "name": 1})
+        apt["service_name"] = service.get("name") if service else "Unknown"
+    
     return appointments
 
 
@@ -487,15 +928,16 @@ async def update_appointment_status(
     current_user: dict = Depends(get_current_user)
 ):
     """Update appointment status"""
-    # Verify access
-    appointment = await db.appointments.find_one({"appointment_id": appointment_id}, {"_id": 0})
+    appointment = await db.appointments.find_one(
+        {"appointment_id": appointment_id, "deleted_at": None}, 
+        {"_id": 0}
+    )
     if not appointment:
         raise HTTPException(status_code=404, detail="Appointment not found")
     
     role = current_user["role"]
     user_id = current_user["user_id"]
     
-    # Check permissions
     can_update = (
         role in [UserRole.ADMIN.value, UserRole.RECEPTION.value] or
         appointment["staff_id"] == user_id or
@@ -505,12 +947,65 @@ async def update_appointment_status(
     if not can_update:
         raise HTTPException(status_code=403, detail="Not authorized to update this appointment")
     
+    old_status = appointment.get("status")
+    
     await db.appointments.update_one(
         {"appointment_id": appointment_id},
         {"$set": {"status": status.value, "updated_at": datetime.now(timezone.utc).isoformat()}}
     )
     
+    await create_audit_log(
+        db, current_user, AuditAction.UPDATE, "appointments", appointment_id,
+        old_value={"status": old_status},
+        new_value={"status": status.value}
+    )
+    
     return {"message": "Appointment status updated"}
+
+
+@api_router.put("/appointments/{appointment_id}")
+async def update_appointment(
+    appointment_id: str,
+    scheduled_date: Optional[str] = None,
+    scheduled_time: Optional[str] = None,
+    meeting_link: Optional[str] = None,
+    notes: Optional[str] = None,
+    is_online: Optional[bool] = None,
+    current_user: dict = Depends(require_roles(UserRole.ADMIN, UserRole.RECEPTION))
+):
+    """Update appointment details"""
+    update_data = {"updated_at": datetime.now(timezone.utc).isoformat()}
+    
+    if scheduled_date:
+        update_data["scheduled_date"] = scheduled_date
+    if scheduled_time:
+        update_data["scheduled_time"] = scheduled_time
+    if meeting_link is not None:
+        update_data["meeting_link"] = meeting_link
+    if notes is not None:
+        update_data["notes"] = notes
+    if is_online is not None:
+        update_data["is_online"] = is_online
+    
+    result = await db.appointments.update_one(
+        {"appointment_id": appointment_id, "deleted_at": None},
+        {"$set": update_data}
+    )
+    
+    if result.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Appointment not found")
+    
+    return {"message": "Appointment updated"}
+
+
+@api_router.delete("/appointments/{appointment_id}")
+async def delete_appointment(
+    appointment_id: str,
+    current_user: dict = Depends(require_roles(UserRole.ADMIN))
+):
+    """Soft delete appointment (Admin only)"""
+    await soft_delete(db, "appointments", "appointment_id", appointment_id, current_user)
+    return {"message": "Appointment deleted"}
 
 
 # ============ STAFF MANAGEMENT ============
@@ -521,41 +1016,58 @@ async def get_staff(
     current_user: dict = Depends(require_roles(UserRole.ADMIN, UserRole.RECEPTION))
 ):
     """Get all staff members"""
-    query = {"role": {"$ne": UserRole.CLIENT.value}}
+    query = exclude_deleted({"role": {"$ne": UserRole.CLIENT.value}})
     if role:
         query["role"] = role
     
     staff = await db.users.find(query, {"_id": 0, "password_hash": 0}).to_list(100)
+    
+    # Enrich with staff profiles
+    for s in staff:
+        profile = await db.staff_profiles.find_one({"user_id": s["user_id"]}, {"_id": 0})
+        s["staff_profile"] = profile
+    
     return staff
 
 
 @api_router.get("/staff/available")
-async def get_available_staff(service_category: Optional[str] = None):
+async def get_available_staff(
+    service_category: Optional[str] = None,
+    role: Optional[str] = None
+):
     """Get available staff for booking (public)"""
-    query = {
+    query = exclude_deleted({
         "role": {"$in": [
             UserRole.PHYSIOTHERAPIST.value,
             UserRole.TRAINER.value,
             UserRole.NUTRITIONIST.value
         ]},
         "is_active": True
-    }
+    })
+    
+    if role:
+        query["role"] = role
     
     staff = await db.users.find(query, {"_id": 0, "password_hash": 0, "email": 0}).to_list(100)
+    
+    for s in staff:
+        profile = await db.staff_profiles.find_one({"user_id": s["user_id"]}, {"_id": 0})
+        s["profile"] = profile
+    
     return staff
 
 
 @api_router.post("/staff")
 async def create_staff(
     user_data: UserCreate,
+    profile_data: Optional[StaffProfileCreate] = None,
     current_user: dict = Depends(require_roles(UserRole.ADMIN))
 ):
     """Create a new staff member (Admin only)"""
     if user_data.role == UserRole.CLIENT:
         raise HTTPException(status_code=400, detail="Use client registration for clients")
     
-    # Check if email exists
-    existing = await db.users.find_one({"email": user_data.email}, {"_id": 0})
+    existing = await db.users.find_one({"email": user_data.email, "deleted_at": None})
     if existing:
         raise HTTPException(status_code=400, detail="Email already registered")
     
@@ -565,14 +1077,64 @@ async def create_staff(
         phone=user_data.phone,
         role=user_data.role
     )
-    user_dict = user.model_dump()
+    user_dict = prepare_for_db(user.model_dump())
     user_dict["password_hash"] = hash_password(user_data.password)
-    user_dict["created_at"] = user_dict["created_at"].isoformat()
-    user_dict["updated_at"] = user_dict["updated_at"].isoformat()
     
     await db.users.insert_one(user_dict)
     
+    # Create staff profile if provided
+    if profile_data:
+        staff_profile = StaffProfile(
+            user_id=user.user_id,
+            **profile_data.model_dump()
+        )
+        await db.staff_profiles.insert_one(prepare_for_db(staff_profile.model_dump()))
+    
+    await create_audit_log(
+        db, current_user, AuditAction.CREATE, "users", user.user_id,
+        new_value={"role": user.role.value, "email": user.email}
+    )
+    
     return {"user_id": user.user_id, "message": f"Staff member created with role: {user.role.value}"}
+
+
+@api_router.put("/staff/{user_id}")
+async def update_staff(
+    user_id: str,
+    name: Optional[str] = None,
+    phone: Optional[str] = None,
+    is_active: Optional[bool] = None,
+    current_user: dict = Depends(require_roles(UserRole.ADMIN))
+):
+    """Update staff member (Admin only)"""
+    update_data = {"updated_at": datetime.now(timezone.utc).isoformat()}
+    
+    if name:
+        update_data["name"] = name
+    if phone:
+        update_data["phone"] = phone
+    if is_active is not None:
+        update_data["is_active"] = is_active
+    
+    result = await db.users.update_one(
+        {"user_id": user_id, "deleted_at": None},
+        {"$set": update_data}
+    )
+    
+    if result.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Staff not found")
+    
+    return {"message": "Staff updated"}
+
+
+@api_router.delete("/staff/{user_id}")
+async def delete_staff(
+    user_id: str,
+    current_user: dict = Depends(require_roles(UserRole.ADMIN))
+):
+    """Soft delete staff member (Admin only)"""
+    await soft_delete(db, "users", "user_id", user_id, current_user)
+    return {"message": "Staff deleted"}
 
 
 # ============ EXERCISE LIBRARY ============
@@ -581,6 +1143,9 @@ async def create_staff(
 async def get_exercises(
     category: Optional[str] = None,
     search: Optional[str] = None,
+    pcod_safe: Optional[bool] = None,
+    min_age: Optional[int] = None,
+    max_age: Optional[int] = None,
     current_user: dict = Depends(get_current_user)
 ):
     """Get exercises from library"""
@@ -590,7 +1155,7 @@ async def get_exercises(
     if role == UserRole.RECEPTION.value:
         raise HTTPException(status_code=403, detail="Access denied")
     
-    query = {"is_active": True}
+    query = exclude_deleted({"is_active": True})
     
     # Clients can only see assigned exercises
     if role == UserRole.CLIENT.value:
@@ -608,6 +1173,12 @@ async def get_exercises(
             {"name": {"$regex": search, "$options": "i"}},
             {"description": {"$regex": search, "$options": "i"}}
         ]
+    if pcod_safe is not None:
+        query["pcod_safe"] = pcod_safe
+    if min_age is not None:
+        query["min_age"] = {"$lte": min_age}
+    if max_age is not None:
+        query["max_age"] = {"$gte": max_age}
     
     exercises = await db.exercises.find(query, {"_id": 0}).to_list(200)
     return exercises
@@ -623,96 +1194,93 @@ async def create_exercise(
         **exercise_data.model_dump(),
         created_by=current_user["user_id"]
     )
-    exercise_dict = exercise.model_dump()
-    exercise_dict["created_at"] = exercise_dict["created_at"].isoformat()
+    await db.exercises.insert_one(prepare_for_db(exercise.model_dump()))
     
-    await db.exercises.insert_one(exercise_dict)
     return {"exercise_id": exercise.exercise_id, "message": "Exercise created"}
 
 
-# ============ DIET PLANS ============
+@api_router.put("/exercises/{exercise_id}")
+async def update_exercise(
+    exercise_id: str,
+    exercise_data: ExerciseCreate,
+    current_user: dict = Depends(require_roles(UserRole.ADMIN, UserRole.PHYSIOTHERAPIST, UserRole.TRAINER))
+):
+    """Update an exercise"""
+    result = await db.exercises.update_one(
+        {"exercise_id": exercise_id, "deleted_at": None},
+        {"$set": exercise_data.model_dump()}
+    )
+    
+    if result.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Exercise not found")
+    
+    return {"message": "Exercise updated"}
 
-@api_router.get("/diet-plans")
-async def get_diet_plans(
-    client_id: Optional[str] = None,
+
+@api_router.delete("/exercises/{exercise_id}")
+async def delete_exercise(
+    exercise_id: str,
+    current_user: dict = Depends(require_roles(UserRole.ADMIN))
+):
+    """Soft delete exercise (Admin only)"""
+    await soft_delete(db, "exercises", "exercise_id", exercise_id, current_user)
+    return {"message": "Exercise deleted"}
+
+
+@api_router.post("/exercises/{exercise_id}/assign")
+async def assign_exercise(
+    exercise_id: str,
+    assignment_data: ExerciseAssignmentCreate,
+    current_user: dict = Depends(require_roles(UserRole.ADMIN, UserRole.PHYSIOTHERAPIST, UserRole.TRAINER))
+):
+    """Assign exercise to client"""
+    # Verify exercise exists
+    exercise = await db.exercises.find_one({"exercise_id": exercise_id, "deleted_at": None})
+    if not exercise:
+        raise HTTPException(status_code=404, detail="Exercise not found")
+    
+    # Verify client access
+    await verify_client_access(db, current_user, assignment_data.client_id)
+    
+    assignment = ExerciseAssignment(
+        client_id=assignment_data.client_id,
+        exercise_id=exercise_id,
+        assigned_by=current_user["user_id"],
+        sets=assignment_data.sets,
+        reps=assignment_data.reps,
+        frequency=assignment_data.frequency,
+        notes=assignment_data.notes
+    )
+    await db.exercise_assignments.insert_one(prepare_for_db(assignment.model_dump()))
+    
+    return {"assignment_id": assignment.assignment_id, "message": "Exercise assigned"}
+
+
+@api_router.get("/exercises/assigned/{client_id}")
+async def get_assigned_exercises(
+    client_id: str,
     current_user: dict = Depends(get_current_user)
 ):
-    """Get diet plans"""
-    role = current_user["role"]
-    user_id = current_user["user_id"]
+    """Get exercises assigned to a client"""
+    await verify_client_access(db, current_user, client_id)
     
-    query = {"is_active": True}
+    assignments = await db.exercise_assignments.find(
+        {"client_id": client_id, "is_active": True},
+        {"_id": 0}
+    ).to_list(100)
     
-    if role == UserRole.CLIENT.value:
-        query["client_id"] = user_id
-    elif role == UserRole.NUTRITIONIST.value:
-        query["nutritionist_id"] = user_id
-    elif client_id and role in [UserRole.ADMIN.value, UserRole.TRAINER.value]:
-        query["client_id"] = client_id
+    # Enrich with exercise details
+    for a in assignments:
+        exercise = await db.exercises.find_one(
+            {"exercise_id": a["exercise_id"]},
+            {"_id": 0}
+        )
+        a["exercise"] = exercise
     
-    plans = await db.diet_plans.find(query, {"_id": 0}).to_list(100)
-    return plans
+    return assignments
 
 
-@api_router.post("/diet-plans")
-async def create_diet_plan(
-    plan_data: DietPlanCreate,
-    current_user: dict = Depends(require_roles(UserRole.NUTRITIONIST, UserRole.ADMIN))
-):
-    """Create a diet plan"""
-    plan = DietPlan(
-        **plan_data.model_dump(),
-        nutritionist_id=current_user["user_id"]
-    )
-    plan_dict = plan.model_dump()
-    plan_dict["created_at"] = plan_dict["created_at"].isoformat()
-    
-    await db.diet_plans.insert_one(plan_dict)
-    return {"diet_plan_id": plan.diet_plan_id, "message": "Diet plan created"}
-
-
-# ============ WORKOUT PLANS ============
-
-@api_router.get("/workout-plans")
-async def get_workout_plans(
-    client_id: Optional[str] = None,
-    current_user: dict = Depends(get_current_user)
-):
-    """Get workout plans"""
-    role = current_user["role"]
-    user_id = current_user["user_id"]
-    
-    query = {"is_active": True}
-    
-    if role == UserRole.CLIENT.value:
-        query["client_id"] = user_id
-    elif role == UserRole.TRAINER.value:
-        query["trainer_id"] = user_id
-    elif client_id and role in [UserRole.ADMIN.value]:
-        query["client_id"] = client_id
-    
-    plans = await db.workout_plans.find(query, {"_id": 0}).to_list(100)
-    return plans
-
-
-@api_router.post("/workout-plans")
-async def create_workout_plan(
-    plan_data: WorkoutPlanCreate,
-    current_user: dict = Depends(require_roles(UserRole.TRAINER, UserRole.ADMIN))
-):
-    """Create a workout plan"""
-    plan = WorkoutPlan(
-        **plan_data.model_dump(),
-        trainer_id=current_user["user_id"]
-    )
-    plan_dict = plan.model_dump()
-    plan_dict["created_at"] = plan_dict["created_at"].isoformat()
-    
-    await db.workout_plans.insert_one(plan_dict)
-    return {"workout_plan_id": plan.workout_plan_id, "message": "Workout plan created"}
-
-
-# ============ ASSESSMENTS & TREATMENT ============
+# ============ ASSESSMENTS ============
 
 @api_router.post("/assessments")
 async def create_assessment(
@@ -720,14 +1288,19 @@ async def create_assessment(
     current_user: dict = Depends(require_roles(UserRole.PHYSIOTHERAPIST, UserRole.ADMIN))
 ):
     """Create an assessment"""
+    await verify_client_access(db, current_user, assessment_data.client_id)
+    
     assessment = Assessment(
         **assessment_data.model_dump(),
         staff_id=current_user["user_id"]
     )
-    assessment_dict = assessment.model_dump()
-    assessment_dict["created_at"] = assessment_dict["created_at"].isoformat()
+    await db.assessments.insert_one(prepare_for_db(assessment.model_dump()))
     
-    await db.assessments.insert_one(assessment_dict)
+    await create_audit_log(
+        db, current_user, AuditAction.CREATE, "assessments", assessment.assessment_id,
+        new_value={"client_id": assessment_data.client_id, "type": assessment_data.assessment_type.value}
+    )
+    
     return {"assessment_id": assessment.assessment_id, "message": "Assessment created"}
 
 
@@ -747,11 +1320,59 @@ async def get_client_assessments(
         raise HTTPException(status_code=403, detail="Access denied")
     
     assessments = await db.assessments.find(
-        {"client_id": client_id}, 
+        exclude_deleted({"client_id": client_id}), 
         {"_id": 0}
     ).sort("created_at", -1).to_list(100)
+    
     return assessments
 
+
+@api_router.put("/assessments/{assessment_id}")
+async def update_assessment(
+    assessment_id: str,
+    findings: Optional[Dict[str, Any]] = Body(None),
+    recommendations: Optional[str] = Body(None),
+    current_user: dict = Depends(require_roles(UserRole.PHYSIOTHERAPIST, UserRole.ADMIN))
+):
+    """Update assessment (if not locked and same day)"""
+    assessment = await db.assessments.find_one(
+        {"assessment_id": assessment_id, "deleted_at": None},
+        {"_id": 0}
+    )
+    if not assessment:
+        raise HTTPException(status_code=404, detail="Assessment not found")
+    
+    # Check if author or admin
+    if current_user["role"] != UserRole.ADMIN.value and assessment["staff_id"] != current_user["user_id"]:
+        raise HTTPException(status_code=403, detail="Only the author can edit this assessment")
+    
+    check_record_editable(assessment, current_user, allow_same_day=True)
+    
+    update_data = {"updated_at": datetime.now(timezone.utc).isoformat()}
+    if findings:
+        update_data["findings"] = findings
+    if recommendations:
+        update_data["recommendations"] = recommendations
+    
+    await db.assessments.update_one(
+        {"assessment_id": assessment_id},
+        {"$set": update_data}
+    )
+    
+    return {"message": "Assessment updated"}
+
+
+@api_router.put("/assessments/{assessment_id}/lock")
+async def lock_assessment(
+    assessment_id: str,
+    current_user: dict = Depends(require_roles(UserRole.PHYSIOTHERAPIST, UserRole.ADMIN))
+):
+    """Lock assessment to make it immutable"""
+    await lock_medical_record(db, "assessments", "assessment_id", assessment_id, current_user)
+    return {"message": "Assessment locked"}
+
+
+# ============ TREATMENT PLANS ============
 
 @api_router.post("/treatment-plans")
 async def create_treatment_plan(
@@ -759,14 +1380,20 @@ async def create_treatment_plan(
     current_user: dict = Depends(require_roles(UserRole.PHYSIOTHERAPIST, UserRole.ADMIN))
 ):
     """Create a treatment plan"""
+    await verify_client_access(db, current_user, plan_data.client_id)
+    
     plan = TreatmentPlan(
         **plan_data.model_dump(),
-        staff_id=current_user["user_id"]
+        staff_id=current_user["user_id"],
+        start_date=datetime.now(timezone.utc).strftime("%Y-%m-%d")
     )
-    plan_dict = plan.model_dump()
-    plan_dict["created_at"] = plan_dict["created_at"].isoformat()
+    await db.treatment_plans.insert_one(prepare_for_db(plan.model_dump()))
     
-    await db.treatment_plans.insert_one(plan_dict)
+    await create_audit_log(
+        db, current_user, AuditAction.CREATE, "treatment_plans", plan.plan_id,
+        new_value={"client_id": plan_data.client_id, "diagnosis": plan_data.diagnosis}
+    )
+    
     return {"plan_id": plan.plan_id, "message": "Treatment plan created"}
 
 
@@ -785,42 +1412,223 @@ async def get_treatment_plans(
         raise HTTPException(status_code=403, detail="Access denied")
     
     plans = await db.treatment_plans.find(
-        {"client_id": client_id, "is_active": True}, 
+        exclude_deleted({"client_id": client_id}), 
         {"_id": 0}
-    ).to_list(100)
+    ).sort("created_at", -1).to_list(100)
+    
     return plans
+
+
+# ============ DAILY NOTES (SOAP) ============
+
+@api_router.post("/daily-notes")
+async def create_daily_note(
+    note_data: DailyNoteCreate,
+    current_user: dict = Depends(require_roles(UserRole.PHYSIOTHERAPIST))
+):
+    """Create a daily SOAP note (Physio only)"""
+    await verify_client_access(db, current_user, note_data.client_id)
+    
+    note = DailyNote(
+        **note_data.model_dump(),
+        staff_id=current_user["user_id"]
+    )
+    await db.daily_notes.insert_one(prepare_for_db(note.model_dump()))
+    
+    await create_audit_log(
+        db, current_user, AuditAction.CREATE, "daily_notes", note.note_id,
+        new_value={"client_id": note_data.client_id, "appointment_id": note_data.appointment_id}
+    )
+    
+    return {"note_id": note.note_id, "message": "Daily note created"}
+
+
+@api_router.get("/daily-notes/{client_id}")
+async def get_daily_notes(
+    client_id: str,
+    current_user: dict = Depends(get_current_user)
+):
+    """Get daily notes for a client"""
+    role = current_user["role"]
+    
+    # Client gets summary only
+    if role == UserRole.CLIENT.value:
+        if current_user["user_id"] != client_id:
+            raise HTTPException(status_code=403, detail="Access denied")
+        
+        notes = await db.daily_notes.find(
+            exclude_deleted({"client_id": client_id}),
+            {"_id": 0, "note_id": 1, "created_at": 1, "assessment": 1, "plan": 1}
+        ).sort("created_at", -1).to_list(50)
+        return notes
+    
+    if role not in [UserRole.ADMIN.value, UserRole.PHYSIOTHERAPIST.value]:
+        raise HTTPException(status_code=403, detail="Access denied")
+    
+    notes = await db.daily_notes.find(
+        exclude_deleted({"client_id": client_id}),
+        {"_id": 0}
+    ).sort("created_at", -1).to_list(100)
+    
+    return notes
+
+
+@api_router.put("/daily-notes/{note_id}")
+async def update_daily_note(
+    note_id: str,
+    subjective: Optional[str] = Body(None),
+    objective: Optional[str] = Body(None),
+    assessment: Optional[str] = Body(None),
+    plan: Optional[str] = Body(None),
+    current_user: dict = Depends(require_roles(UserRole.PHYSIOTHERAPIST))
+):
+    """Update daily note (same-day only, author only)"""
+    note = await db.daily_notes.find_one(
+        {"note_id": note_id, "deleted_at": None},
+        {"_id": 0}
+    )
+    if not note:
+        raise HTTPException(status_code=404, detail="Note not found")
+    
+    if note["staff_id"] != current_user["user_id"]:
+        raise HTTPException(status_code=403, detail="Only the author can edit this note")
+    
+    check_record_editable(note, current_user, allow_same_day=True)
+    
+    update_data = {"updated_at": datetime.now(timezone.utc).isoformat()}
+    if subjective:
+        update_data["subjective"] = subjective
+    if objective:
+        update_data["objective"] = objective
+    if assessment:
+        update_data["assessment"] = assessment
+    if plan:
+        update_data["plan"] = plan
+    
+    await db.daily_notes.update_one(
+        {"note_id": note_id},
+        {"$set": update_data}
+    )
+    
+    return {"message": "Note updated"}
+
+
+@api_router.put("/daily-notes/{note_id}/lock")
+async def lock_daily_note(
+    note_id: str,
+    current_user: dict = Depends(require_roles(UserRole.PHYSIOTHERAPIST, UserRole.ADMIN))
+):
+    """Lock daily note"""
+    await lock_medical_record(db, "daily_notes", "note_id", note_id, current_user)
+    return {"message": "Note locked"}
+
+
+# ============ DIET PLANS ============
+
+@api_router.get("/diet-plans")
+async def get_diet_plans(
+    client_id: Optional[str] = None,
+    current_user: dict = Depends(get_current_user)
+):
+    """Get diet plans"""
+    role = current_user["role"]
+    user_id = current_user["user_id"]
+    
+    query = exclude_deleted({"is_active": True})
+    
+    if role == UserRole.CLIENT.value:
+        query["client_id"] = user_id
+    elif role == UserRole.NUTRITIONIST.value:
+        query["nutritionist_id"] = user_id
+    elif client_id and role in [UserRole.ADMIN.value, UserRole.TRAINER.value]:
+        query["client_id"] = client_id
+    
+    plans = await db.diet_plans.find(query, {"_id": 0}).to_list(100)
+    return plans
+
+
+@api_router.post("/diet-plans")
+async def create_diet_plan(
+    plan_data: DietPlanCreate,
+    current_user: dict = Depends(require_roles(UserRole.NUTRITIONIST, UserRole.ADMIN))
+):
+    """Create a diet plan"""
+    await verify_client_access(db, current_user, plan_data.client_id)
+    
+    plan = DietPlan(
+        **plan_data.model_dump(),
+        nutritionist_id=current_user["user_id"]
+    )
+    await db.diet_plans.insert_one(prepare_for_db(plan.model_dump()))
+    
+    return {"diet_plan_id": plan.diet_plan_id, "message": "Diet plan created"}
+
+
+# ============ WORKOUT PLANS ============
+
+@api_router.get("/workout-plans")
+async def get_workout_plans(
+    client_id: Optional[str] = None,
+    current_user: dict = Depends(get_current_user)
+):
+    """Get workout plans"""
+    role = current_user["role"]
+    user_id = current_user["user_id"]
+    
+    query = exclude_deleted({"is_active": True})
+    
+    if role == UserRole.CLIENT.value:
+        query["client_id"] = user_id
+    elif role == UserRole.TRAINER.value:
+        query["trainer_id"] = user_id
+    elif client_id and role == UserRole.ADMIN.value:
+        query["client_id"] = client_id
+    
+    plans = await db.workout_plans.find(query, {"_id": 0}).to_list(100)
+    return plans
+
+
+@api_router.post("/workout-plans")
+async def create_workout_plan(
+    plan_data: WorkoutPlanCreate,
+    current_user: dict = Depends(require_roles(UserRole.TRAINER, UserRole.ADMIN))
+):
+    """Create a workout plan"""
+    await verify_client_access(db, current_user, plan_data.client_id)
+    
+    plan = WorkoutPlan(
+        **plan_data.model_dump(),
+        trainer_id=current_user["user_id"]
+    )
+    await db.workout_plans.insert_one(prepare_for_db(plan.model_dump()))
+    
+    return {"workout_plan_id": plan.workout_plan_id, "message": "Workout plan created"}
 
 
 # ============ PROGRESS TRACKING ============
 
 @api_router.post("/progress")
 async def record_progress(
-    client_id: str,
-    metric_type: str,
-    value: float,
-    unit: str,
-    notes: Optional[str] = None,
+    progress_data: ProgressMetricCreate,
     current_user: dict = Depends(get_current_user)
 ):
     """Record a progress metric"""
     role = current_user["role"]
     
-    # Clients can record their own, staff can record for assigned clients
-    if role == UserRole.CLIENT.value and current_user["user_id"] != client_id:
-        raise HTTPException(status_code=403, detail="Access denied")
+    # Clients can record their own
+    if role == UserRole.CLIENT.value and current_user["user_id"] != progress_data.client_id:
+        raise HTTPException(status_code=403, detail="You can only record your own progress")
+    
+    # Staff need client access
+    if role != UserRole.CLIENT.value:
+        await verify_client_access(db, current_user, progress_data.client_id)
     
     metric = ProgressMetric(
-        client_id=client_id,
-        recorded_by=current_user["user_id"],
-        metric_type=metric_type,
-        value=value,
-        unit=unit,
-        notes=notes
+        **progress_data.model_dump(),
+        recorded_by=current_user["user_id"]
     )
-    metric_dict = metric.model_dump()
-    metric_dict["recorded_at"] = metric_dict["recorded_at"].isoformat()
+    await db.progress_metrics.insert_one(prepare_for_db(metric.model_dump()))
     
-    await db.progress_metrics.insert_one(metric_dict)
     return {"metric_id": metric.metric_id, "message": "Progress recorded"}
 
 
@@ -828,6 +1636,8 @@ async def record_progress(
 async def get_progress(
     client_id: str,
     metric_type: Optional[str] = None,
+    date_from: Optional[str] = None,
+    date_to: Optional[str] = None,
     current_user: dict = Depends(get_current_user)
 ):
     """Get progress metrics for a client"""
@@ -841,7 +1651,25 @@ async def get_progress(
         query["metric_type"] = metric_type
     
     metrics = await db.progress_metrics.find(query, {"_id": 0}).sort("recorded_at", -1).to_list(500)
-    return metrics
+    
+    # Prepare chart data
+    chart_data = {}
+    if metrics:
+        for m in reversed(metrics):
+            mt = m.get("metric_type")
+            if mt not in chart_data:
+                chart_data[mt] = {"labels": [], "values": [], "unit": m.get("unit")}
+            
+            recorded_at = m.get("recorded_at")
+            if isinstance(recorded_at, str):
+                label = recorded_at[:10]
+            else:
+                label = recorded_at.strftime("%Y-%m-%d")
+            
+            chart_data[mt]["labels"].append(label)
+            chart_data[mt]["values"].append(m.get("value"))
+    
+    return {"metrics": metrics, "chart_data": chart_data}
 
 
 # ============ BILLING & PAYMENTS ============
@@ -852,23 +1680,30 @@ async def create_invoice(
     current_user: dict = Depends(require_roles(UserRole.ADMIN, UserRole.RECEPTION))
 ):
     """Create an invoice"""
-    subtotal = sum(item.total for item in invoice_data.items)
+    items = [item.model_dump() for item in invoice_data.items]
+    subtotal = sum(item["total"] for item in items)
     tax = subtotal * 0.18  # 18% GST
     total = subtotal + tax
     
     invoice = Invoice(
         client_id=invoice_data.client_id,
-        items=[item.model_dump() for item in invoice_data.items],
+        items=items,
         subtotal=subtotal,
         tax=tax,
         total=total,
-        notes=invoice_data.notes
+        notes=invoice_data.notes,
+        appointment_id=invoice_data.appointment_id,
+        membership_id=invoice_data.membership_id,
+        created_by=current_user["user_id"]
     )
-    invoice_dict = invoice.model_dump()
-    invoice_dict["created_at"] = invoice_dict["created_at"].isoformat()
+    await db.invoices.insert_one(prepare_for_db(invoice.model_dump()))
     
-    await db.invoices.insert_one(invoice_dict)
-    return {"invoice_id": invoice.invoice_id, "total": total}
+    await create_audit_log(
+        db, current_user, AuditAction.CREATE, "invoices", invoice.invoice_id,
+        new_value={"client_id": invoice_data.client_id, "total": total}
+    )
+    
+    return {"invoice_id": invoice.invoice_id, "invoice_number": invoice.invoice_number, "total": total}
 
 
 @api_router.get("/invoices")
@@ -880,7 +1715,7 @@ async def get_invoices(
     """Get invoices"""
     role = current_user["role"]
     
-    query = {}
+    query = exclude_deleted()
     if role == UserRole.CLIENT.value:
         query["client_id"] = current_user["user_id"]
     elif client_id:
@@ -890,61 +1725,248 @@ async def get_invoices(
         query["status"] = status
     
     invoices = await db.invoices.find(query, {"_id": 0}).sort("created_at", -1).to_list(500)
+    
+    # Enrich with client info
+    for inv in invoices:
+        client = await db.users.find_one({"user_id": inv["client_id"]}, {"_id": 0, "name": 1})
+        inv["client_name"] = client.get("name") if client else "Unknown"
+    
     return invoices
 
 
-# ============ WEBSITE CONTENT ============
-
-@api_router.get("/testimonials")
-async def get_testimonials():
-    """Get visible testimonials (public)"""
-    testimonials = await db.testimonials.find(
-        {"is_visible": True}, 
-        {"_id": 0}
-    ).sort("created_at", -1).to_list(20)
-    return testimonials
-
-
-@api_router.post("/testimonials")
-async def create_testimonial(
-    client_name: str,
-    content: str,
-    rating: int = 5,
-    current_user: dict = Depends(require_roles(UserRole.ADMIN))
+@api_router.get("/invoices/{invoice_id}")
+async def get_invoice_detail(
+    invoice_id: str,
+    current_user: dict = Depends(get_current_user)
 ):
-    """Create a testimonial (Admin only)"""
-    testimonial = Testimonial(
-        client_name=client_name,
-        content=content,
-        rating=rating
+    """Get invoice details"""
+    invoice = await db.invoices.find_one(
+        {"invoice_id": invoice_id, "deleted_at": None},
+        {"_id": 0}
     )
-    testimonial_dict = testimonial.model_dump()
-    testimonial_dict["created_at"] = testimonial_dict["created_at"].isoformat()
+    if not invoice:
+        raise HTTPException(status_code=404, detail="Invoice not found")
     
-    await db.testimonials.insert_one(testimonial_dict)
-    return {"testimonial_id": testimonial.testimonial_id}
-
-
-@api_router.get("/faqs")
-async def get_faqs(category: Optional[str] = None):
-    """Get FAQs (public)"""
-    query = {"is_visible": True}
-    if category:
-        query["category"] = category
+    # Check access
+    role = current_user["role"]
+    if role == UserRole.CLIENT.value and invoice["client_id"] != current_user["user_id"]:
+        raise HTTPException(status_code=403, detail="Access denied")
     
-    faqs = await db.faqs.find(query, {"_id": 0}).sort("order", 1).to_list(100)
-    return faqs
-
-
-@api_router.get("/gallery")
-async def get_gallery(category: Optional[str] = None):
-    """Get gallery images (public)"""
-    query = {"is_visible": True}
-    if category:
-        query["category"] = category
+    # Get client info
+    client = await db.users.find_one({"user_id": invoice["client_id"]}, {"_id": 0, "name": 1, "email": 1, "phone": 1})
+    invoice["client"] = client
     
-    images = await db.gallery.find(query, {"_id": 0}).sort("order", 1).to_list(50)
-    return images
+    # Get payment info
+    payment = await db.payments.find_one(
+        {"invoice_id": invoice_id, "status": PaymentStatus.COMPLETED.value},
+        {"_id": 0}
+    )
+    invoice["payment"] = payment
+    
+    return invoice
+
+
+@api_router.post("/payments/create-order")
+async def create_payment_order(
+    payment_data: PaymentCreate,
+    current_user: dict = Depends(get_current_user)
+):
+    """Create Razorpay order"""
+    # Get invoice
+    invoice = await db.invoices.find_one(
+        {"invoice_id": payment_data.invoice_id, "deleted_at": None},
+        {"_id": 0}
+    )
+    if not invoice:
+        raise HTTPException(status_code=404, detail="Invoice not found")
+    
+    # Verify client access
+    if current_user["role"] == UserRole.CLIENT.value and invoice["client_id"] != current_user["user_id"]:
+        raise HTTPException(status_code=403, detail="Access denied")
+    
+    # Check if mock mode
+    settings = await db.settings.find_one({"setting_id": "settings_main"})
+    mock_mode = payment_data.mock_mode or (settings and settings.get("razorpay_mock_mode", True))
+    
+    if mock_mode:
+        # Mock payment order
+        order_id = f"mock_order_{generate_id('')}"
+        
+        payment = Payment(
+            invoice_id=payment_data.invoice_id,
+            client_id=invoice["client_id"],
+            amount=payment_data.amount,
+            payment_method="razorpay",
+            razorpay_order_id=order_id,
+            mock_mode=True
+        )
+        await db.payments.insert_one(prepare_for_db(payment.model_dump()))
+        
+        return {
+            "order_id": order_id,
+            "amount": int(payment_data.amount * 100),  # Razorpay uses paise
+            "currency": "INR",
+            "key_id": "mock_key",
+            "mock_mode": True,
+            "payment_id": payment.payment_id
+        }
+    
+    # Real Razorpay integration
+    razorpay_key = os.environ.get("RAZORPAY_KEY_ID")
+    razorpay_secret = os.environ.get("RAZORPAY_KEY_SECRET")
+    
+    if not razorpay_key or not razorpay_secret:
+        raise HTTPException(status_code=500, detail="Razorpay not configured")
+    
+    # Create Razorpay order
+    import razorpay
+    rz_client = razorpay.Client(auth=(razorpay_key, razorpay_secret))
+    
+    order_data = {
+        "amount": int(payment_data.amount * 100),
+        "currency": "INR",
+        "receipt": invoice["invoice_number"]
+    }
+    
+    order = rz_client.order.create(data=order_data)
+    
+    payment = Payment(
+        invoice_id=payment_data.invoice_id,
+        client_id=invoice["client_id"],
+        amount=payment_data.amount,
+        payment_method="razorpay",
+        razorpay_order_id=order["id"],
+        mock_mode=False
+    )
+    await db.payments.insert_one(prepare_for_db(payment.model_dump()))
+    
+    return {
+        "order_id": order["id"],
+        "amount": order["amount"],
+        "currency": order["currency"],
+        "key_id": razorpay_key,
+        "mock_mode": False,
+        "payment_id": payment.payment_id
+    }
+
+
+@api_router.post("/payments/verify")
+async def verify_payment(
+    invoice_id: str = Body(...),
+    razorpay_order_id: str = Body(...),
+    razorpay_payment_id: str = Body(...),
+    razorpay_signature: Optional[str] = Body(None),
+    current_user: dict = Depends(get_current_user)
+):
+    """Verify Razorpay payment"""
+    payment = await db.payments.find_one(
+        {"invoice_id": invoice_id, "razorpay_order_id": razorpay_order_id},
+        {"_id": 0}
+    )
+    if not payment:
+        raise HTTPException(status_code=404, detail="Payment not found")
+    
+    mock_mode = payment.get("mock_mode", False)
+    
+    if not mock_mode and razorpay_signature:
+        # Verify signature for real payments
+        import razorpay
+        import hmac
+        import hashlib
+        
+        razorpay_secret = os.environ.get("RAZORPAY_KEY_SECRET")
+        
+        message = f"{razorpay_order_id}|{razorpay_payment_id}"
+        generated_signature = hmac.new(
+            razorpay_secret.encode(),
+            message.encode(),
+            hashlib.sha256
+        ).hexdigest()
+        
+        if generated_signature != razorpay_signature:
+            await db.payments.update_one(
+                {"payment_id": payment["payment_id"]},
+                {"$set": {"status": PaymentStatus.FAILED.value}}
+            )
+            raise HTTPException(status_code=400, detail="Payment verification failed")
+    
+    # Update payment status
+    await db.payments.update_one(
+        {"payment_id": payment["payment_id"]},
+        {"$set": {
+            "status": PaymentStatus.COMPLETED.value,
+            "razorpay_payment_id": razorpay_payment_id,
+            "razorpay_signature": razorpay_signature
+        }}
+    )
+    
+    # Update invoice status
+    await db.invoices.update_one(
+        {"invoice_id": invoice_id},
+        {"$set": {"status": PaymentStatus.COMPLETED.value}}
+    )
+    
+    # Create receipt
+    receipt = Receipt(
+        payment_id=payment["payment_id"],
+        invoice_id=invoice_id,
+        client_id=payment["client_id"],
+        amount=payment["amount"],
+        payment_method="razorpay"
+    )
+    await db.receipts.insert_one(prepare_for_db(receipt.model_dump()))
+    
+    await create_audit_log(
+        db, current_user, AuditAction.CREATE, "payments", payment["payment_id"],
+        new_value={"status": "completed", "amount": payment["amount"]}
+    )
+    
+    return {
+        "payment_id": payment["payment_id"],
+        "status": "completed",
+        "receipt_id": receipt.receipt_id
+    }
+
+
+@api_router.post("/payments/mock-complete/{payment_id}")
+async def mock_complete_payment(
+    payment_id: str,
+    current_user: dict = Depends(require_roles(UserRole.ADMIN, UserRole.RECEPTION))
+):
+    """Complete a mock payment (for testing)"""
+    payment = await db.payments.find_one(
+        {"payment_id": payment_id, "mock_mode": True},
+        {"_id": 0}
+    )
+    if not payment:
+        raise HTTPException(status_code=404, detail="Mock payment not found")
+    
+    # Update payment
+    await db.payments.update_one(
+        {"payment_id": payment_id},
+        {"$set": {
+            "status": PaymentStatus.COMPLETED.value,
+            "razorpay_payment_id": f"mock_pay_{generate_id('')}"
+        }}
+    )
+    
+    # Update invoice
+    await db.invoices.update_one(
+        {"invoice_id": payment["invoice_id"]},
+        {"$set": {"status": PaymentStatus.COMPLETED.value}}
+    )
+    
+    # Create receipt
+    receipt = Receipt(
+        payment_id=payment_id,
+        invoice_id=payment["invoice_id"],
+        client_id=payment["client_id"],
+        amount=payment["amount"],
+        payment_method="mock"
+    )
+    await db.receipts.insert_one(prepare_for_db(receipt.model_dump()))
+    
+    return {"status": "completed", "receipt_id": receipt.receipt_id}
 
 
 # ============ NOTIFICATIONS ============
@@ -958,6 +1980,7 @@ async def get_notifications(
         {"user_id": current_user["user_id"]},
         {"_id": 0}
     ).sort("created_at", -1).to_list(50)
+    
     return notifications
 
 
@@ -969,9 +1992,91 @@ async def mark_notification_read(
     """Mark notification as read"""
     await db.notifications.update_one(
         {"notification_id": notification_id, "user_id": current_user["user_id"]},
-        {"$set": {"is_read": True}}
+        {"$set": {"is_read": True, "read_at": datetime.now(timezone.utc).isoformat()}}
     )
     return {"message": "Notification marked as read"}
+
+
+@api_router.post("/notifications/send")
+async def send_notification(
+    user_ids: List[str] = Body(...),
+    title: str = Body(...),
+    message: str = Body(...),
+    notification_type: NotificationType = Body(NotificationType.SYSTEM),
+    current_user: dict = Depends(require_roles(UserRole.ADMIN, UserRole.RECEPTION))
+):
+    """Send notification to users"""
+    notifications = []
+    for user_id in user_ids:
+        notif = Notification(
+            user_id=user_id,
+            title=title,
+            message=message,
+            notification_type=notification_type
+        )
+        notifications.append(prepare_for_db(notif.model_dump()))
+    
+    if notifications:
+        await db.notifications.insert_many(notifications)
+    
+    return {"message": f"Sent {len(notifications)} notifications"}
+
+
+# ============ ATTENDANCE ============
+
+@api_router.post("/attendance/check-in")
+async def check_in(
+    client_id: str = Body(...),
+    appointment_id: Optional[str] = Body(None),
+    class_id: Optional[str] = Body(None),
+    current_user: dict = Depends(require_roles(UserRole.ADMIN, UserRole.RECEPTION, UserRole.PHYSIOTHERAPIST, UserRole.TRAINER))
+):
+    """Record client check-in"""
+    attendance = AttendanceLog(
+        client_id=client_id,
+        appointment_id=appointment_id,
+        class_id=class_id,
+        check_in=datetime.now(timezone.utc),
+        recorded_by=current_user["user_id"]
+    )
+    await db.attendance_logs.insert_one(prepare_for_db(attendance.model_dump()))
+    
+    return {"attendance_id": attendance.attendance_id, "message": "Check-in recorded"}
+
+
+@api_router.put("/attendance/{attendance_id}/check-out")
+async def check_out(
+    attendance_id: str,
+    current_user: dict = Depends(require_roles(UserRole.ADMIN, UserRole.RECEPTION, UserRole.PHYSIOTHERAPIST, UserRole.TRAINER))
+):
+    """Record client check-out"""
+    await db.attendance_logs.update_one(
+        {"attendance_id": attendance_id},
+        {"$set": {"check_out": datetime.now(timezone.utc).isoformat()}}
+    )
+    return {"message": "Check-out recorded"}
+
+
+@api_router.get("/attendance")
+async def get_attendance(
+    client_id: Optional[str] = None,
+    date: Optional[str] = None,
+    current_user: dict = Depends(get_current_user)
+):
+    """Get attendance logs"""
+    query = {}
+    
+    if current_user["role"] == UserRole.CLIENT.value:
+        query["client_id"] = current_user["user_id"]
+    elif client_id:
+        query["client_id"] = client_id
+    
+    if date:
+        # Filter by date (check_in starts with date)
+        query["check_in"] = {"$regex": f"^{date}"}
+    
+    logs = await db.attendance_logs.find(query, {"_id": 0}).sort("check_in", -1).to_list(500)
+    return logs
 
 
 # ============ DASHBOARD STATS ============
@@ -982,73 +2087,221 @@ async def get_dashboard_stats(current_user: dict = Depends(get_current_user)):
     role = current_user["role"]
     user_id = current_user["user_id"]
     stats = {}
+    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     
     if role in [UserRole.ADMIN.value, UserRole.RECEPTION.value]:
-        # Admin/Reception stats
-        stats["total_clients"] = await db.users.count_documents({"role": UserRole.CLIENT.value})
-        stats["pending_bookings"] = await db.guest_bookings.count_documents({"status": "pending"})
-        stats["today_appointments"] = await db.appointments.count_documents({
-            "scheduled_date": datetime.now(timezone.utc).strftime("%Y-%m-%d")
-        })
-        stats["active_memberships"] = await db.memberships.count_documents({"is_active": True})
+        stats["total_clients"] = await db.users.count_documents(
+            {"role": UserRole.CLIENT.value, "deleted_at": None}
+        )
+        stats["pending_bookings"] = await db.guest_bookings.count_documents(
+            {"status": GuestBookingStatus.PENDING.value, "deleted_at": None}
+        )
+        stats["today_appointments"] = await db.appointments.count_documents(
+            {"scheduled_date": today, "deleted_at": None}
+        )
+        stats["active_memberships"] = await db.memberships.count_documents(
+            {"is_active": True, "deleted_at": None}
+        )
+        
+        # Revenue this month
+        first_of_month = datetime.now(timezone.utc).replace(day=1).strftime("%Y-%m-%d")
+        pipeline = [
+            {"$match": {"status": PaymentStatus.COMPLETED.value, "created_at": {"$gte": first_of_month}}},
+            {"$group": {"_id": None, "total": {"$sum": "$amount"}}}
+        ]
+        revenue = await db.payments.aggregate(pipeline).to_list(1)
+        stats["monthly_revenue"] = revenue[0]["total"] if revenue else 0
+        
+        # Pending payments
+        pending_pipeline = [
+            {"$match": {"status": PaymentStatus.PENDING.value}},
+            {"$group": {"_id": None, "total": {"$sum": "$total"}}}
+        ]
+        pending = await db.invoices.aggregate(pending_pipeline).to_list(1)
+        stats["pending_payments"] = pending[0]["total"] if pending else 0
     
     elif role == UserRole.CLIENT.value:
-        # Client stats
         stats["upcoming_appointments"] = await db.appointments.count_documents({
             "client_id": user_id,
-            "status": {"$in": ["pending", "confirmed"]}
+            "status": {"$in": [AppointmentStatus.PENDING.value, AppointmentStatus.CONFIRMED.value]},
+            "deleted_at": None
         })
         stats["active_plans"] = await db.treatment_plans.count_documents({
             "client_id": user_id,
-            "is_active": True
+            "is_active": True,
+            "deleted_at": None
+        })
+        
+        # Sessions remaining from membership
+        membership = await db.memberships.find_one(
+            {"client_id": user_id, "is_active": True, "deleted_at": None}
+        )
+        stats["sessions_remaining"] = membership.get("sessions_remaining", 0) if membership else 0
+        
+        stats["unread_messages"] = await db.notifications.count_documents({
+            "user_id": user_id,
+            "is_read": False
         })
     
     elif role == UserRole.PHYSIOTHERAPIST.value:
-        stats["assigned_patients"] = await db.appointments.distinct(
-            "client_id",
-            {"staff_id": user_id}
-        )
-        stats["assigned_patients"] = len(stats["assigned_patients"])
+        assigned_clients = await get_assigned_clients(db, user_id, role)
+        stats["assigned_patients"] = len(assigned_clients)
         stats["today_sessions"] = await db.appointments.count_documents({
             "staff_id": user_id,
-            "scheduled_date": datetime.now(timezone.utc).strftime("%Y-%m-%d")
+            "scheduled_date": today,
+            "deleted_at": None
+        })
+        stats["pending_assessments"] = await db.assessments.count_documents({
+            "staff_id": user_id,
+            "is_locked": False,
+            "deleted_at": None
+        })
+        stats["active_treatment_plans"] = await db.treatment_plans.count_documents({
+            "staff_id": user_id,
+            "is_active": True,
+            "deleted_at": None
         })
     
     elif role == UserRole.TRAINER.value:
-        stats["assigned_members"] = await db.workout_plans.distinct(
-            "client_id",
-            {"trainer_id": user_id, "is_active": True}
-        )
-        stats["assigned_members"] = len(stats["assigned_members"])
+        assigned_clients = await get_assigned_clients(db, user_id, role)
+        stats["assigned_members"] = len(assigned_clients)
+        stats["today_classes"] = await db.appointments.count_documents({
+            "staff_id": user_id,
+            "scheduled_date": today,
+            "deleted_at": None
+        })
+        stats["active_workout_plans"] = await db.workout_plans.count_documents({
+            "trainer_id": user_id,
+            "is_active": True,
+            "deleted_at": None
+        })
     
     elif role == UserRole.NUTRITIONIST.value:
-        stats["assigned_clients"] = await db.diet_plans.distinct(
-            "client_id",
-            {"nutritionist_id": user_id, "is_active": True}
-        )
-        stats["assigned_clients"] = len(stats["assigned_clients"])
+        assigned_clients = await get_assigned_clients(db, user_id, role)
+        stats["assigned_clients"] = len(assigned_clients)
+        stats["active_diet_plans"] = await db.diet_plans.count_documents({
+            "nutritionist_id": user_id,
+            "is_active": True,
+            "deleted_at": None
+        })
     
     return stats
 
 
-# ============ CLIENTS LIST (Admin/Reception) ============
+# ============ AUDIT LOGS (Admin Only) ============
 
-@api_router.get("/clients")
-async def get_clients(
-    search: Optional[str] = None,
-    current_user: dict = Depends(require_roles(UserRole.ADMIN, UserRole.RECEPTION))
+@api_router.get("/audit-logs")
+async def get_audit_logs(
+    user_id: Optional[str] = None,
+    action: Optional[str] = None,
+    entity_type: Optional[str] = None,
+    date_from: Optional[str] = None,
+    date_to: Optional[str] = None,
+    limit: int = 100,
+    current_user: dict = Depends(require_roles(UserRole.ADMIN))
 ):
-    """Get all clients"""
-    query = {"role": UserRole.CLIENT.value}
-    if search:
-        query["$or"] = [
-            {"name": {"$regex": search, "$options": "i"}},
-            {"email": {"$regex": search, "$options": "i"}},
-            {"phone": {"$regex": search, "$options": "i"}}
-        ]
+    """Get audit logs (Admin only)"""
+    query = {}
     
-    clients = await db.users.find(query, {"_id": 0, "password_hash": 0}).to_list(500)
-    return clients
+    if user_id:
+        query["user_id"] = user_id
+    if action:
+        query["action"] = action
+    if entity_type:
+        query["entity_type"] = entity_type
+    if date_from:
+        query.setdefault("created_at", {})["$gte"] = date_from
+    if date_to:
+        query.setdefault("created_at", {})["$lte"] = date_to
+    
+    logs = await db.audit_logs.find(query, {"_id": 0}).sort("created_at", -1).to_list(limit)
+    return logs
+
+
+# ============ WEBSITE CONTENT ============
+
+@api_router.get("/testimonials")
+async def get_testimonials():
+    """Get visible testimonials (public)"""
+    testimonials = await db.testimonials.find(
+        exclude_deleted({"is_visible": True}), 
+        {"_id": 0}
+    ).sort("order", 1).to_list(20)
+    return testimonials
+
+
+@api_router.post("/testimonials")
+async def create_testimonial(
+    client_name: str = Body(...),
+    content: str = Body(...),
+    rating: int = Body(5),
+    service_category: Optional[str] = Body(None),
+    current_user: dict = Depends(require_roles(UserRole.ADMIN))
+):
+    """Create a testimonial (Admin only)"""
+    testimonial = Testimonial(
+        client_name=client_name,
+        content=content,
+        rating=rating,
+        service_category=ServiceCategory(service_category) if service_category else None
+    )
+    await db.testimonials.insert_one(prepare_for_db(testimonial.model_dump()))
+    
+    return {"testimonial_id": testimonial.testimonial_id}
+
+
+@api_router.get("/faqs")
+async def get_faqs(category: Optional[str] = None):
+    """Get FAQs (public)"""
+    query = exclude_deleted({"is_visible": True})
+    if category:
+        query["category"] = category
+    
+    faqs = await db.faqs.find(query, {"_id": 0}).sort("order", 1).to_list(100)
+    return faqs
+
+
+@api_router.get("/gallery")
+async def get_gallery(category: Optional[str] = None):
+    """Get gallery images (public)"""
+    query = exclude_deleted({"is_visible": True})
+    if category:
+        query["category"] = category
+    
+    images = await db.gallery.find(query, {"_id": 0}).sort("order", 1).to_list(50)
+    return images
+
+
+# ============ SYSTEM SETTINGS (Admin Only) ============
+
+@api_router.get("/settings")
+async def get_settings(current_user: dict = Depends(require_roles(UserRole.ADMIN))):
+    """Get system settings"""
+    settings = await db.settings.find_one({"setting_id": "settings_main"}, {"_id": 0})
+    return settings or SystemSettings().model_dump()
+
+
+@api_router.put("/settings")
+async def update_settings(
+    settings_data: Dict[str, Any] = Body(...),
+    current_user: dict = Depends(require_roles(UserRole.ADMIN))
+):
+    """Update system settings"""
+    settings_data["updated_at"] = datetime.now(timezone.utc).isoformat()
+    settings_data["updated_by"] = current_user["user_id"]
+    
+    await db.settings.update_one(
+        {"setting_id": "settings_main"},
+        {"$set": settings_data},
+        upsert=True
+    )
+    
+    await create_audit_log(
+        db, current_user, AuditAction.UPDATE, "settings", "settings_main",
+        new_value=settings_data
+    )
+    
+    return {"message": "Settings updated"}
 
 
 # Include the router in the main app
@@ -1063,14 +2316,26 @@ app.add_middleware(
 )
 
 
+def generate_id(prefix: str = "") -> str:
+    import uuid
+    return f"{prefix}{uuid.uuid4().hex[:12]}"
+
+
 @app.on_event("startup")
 async def startup_db():
-    """Initialize database with seed data if empty"""
+    """Initialize database with seed data"""
     # Create indexes
-    await db.users.create_index("email", unique=True)
+    await db.users.create_index("email")
     await db.users.create_index("user_id", unique=True)
+    await db.users.create_index("phone")
     await db.appointments.create_index("scheduled_date")
+    await db.appointments.create_index("client_id")
+    await db.appointments.create_index("staff_id")
     await db.guest_bookings.create_index("status")
+    await db.audit_logs.create_index("created_at")
+    await db.audit_logs.create_index("user_id")
+    await db.client_profiles.create_index("user_id", unique=True)
+    await db.exercise_assignments.create_index("client_id")
     
     # Seed default services if none exist
     services_count = await db.services.count_documents({})
@@ -1084,7 +2349,8 @@ async def startup_db():
                 "duration_minutes": 60,
                 "price": 1500,
                 "is_active": True,
-                "created_at": datetime.now(timezone.utc).isoformat()
+                "created_at": datetime.now(timezone.utc).isoformat(),
+                "deleted_at": None
             },
             {
                 "service_id": "svc_paed_therapy",
@@ -1094,7 +2360,8 @@ async def startup_db():
                 "duration_minutes": 45,
                 "price": 800,
                 "is_active": True,
-                "created_at": datetime.now(timezone.utc).isoformat()
+                "created_at": datetime.now(timezone.utc).isoformat(),
+                "deleted_at": None
             },
             {
                 "service_id": "svc_weight_consult",
@@ -1104,7 +2371,8 @@ async def startup_db():
                 "duration_minutes": 45,
                 "price": 1000,
                 "is_active": True,
-                "created_at": datetime.now(timezone.utc).isoformat()
+                "created_at": datetime.now(timezone.utc).isoformat(),
+                "deleted_at": None
             },
             {
                 "service_id": "svc_pcod_program",
@@ -1114,7 +2382,8 @@ async def startup_db():
                 "duration_minutes": 60,
                 "price": 1200,
                 "is_active": True,
-                "created_at": datetime.now(timezone.utc).isoformat()
+                "created_at": datetime.now(timezone.utc).isoformat(),
+                "deleted_at": None
             },
             {
                 "service_id": "svc_zumba",
@@ -1124,7 +2393,8 @@ async def startup_db():
                 "duration_minutes": 60,
                 "price": 500,
                 "is_active": True,
-                "created_at": datetime.now(timezone.utc).isoformat()
+                "created_at": datetime.now(timezone.utc).isoformat(),
+                "deleted_at": None
             },
             {
                 "service_id": "svc_yoga",
@@ -1134,7 +2404,8 @@ async def startup_db():
                 "duration_minutes": 60,
                 "price": 600,
                 "is_active": True,
-                "created_at": datetime.now(timezone.utc).isoformat()
+                "created_at": datetime.now(timezone.utc).isoformat(),
+                "deleted_at": None
             },
             {
                 "service_id": "svc_pain",
@@ -1144,13 +2415,14 @@ async def startup_db():
                 "duration_minutes": 45,
                 "price": 900,
                 "is_active": True,
-                "created_at": datetime.now(timezone.utc).isoformat()
+                "created_at": datetime.now(timezone.utc).isoformat(),
+                "deleted_at": None
             }
         ]
         await db.services.insert_many(default_services)
         logger.info("Seeded default services")
     
-    # Seed default FAQs if none exist
+    # Seed FAQs
     faqs_count = await db.faqs.count_documents({})
     if faqs_count == 0:
         default_faqs = [
@@ -1160,7 +2432,8 @@ async def startup_db():
                 "answer": "We treat children from newborns to 18 years old. Our paediatric physiotherapists are specialized in developmental milestones, neurological conditions, and orthopaedic issues in children.",
                 "category": "paediatric",
                 "order": 1,
-                "is_visible": True
+                "is_visible": True,
+                "deleted_at": None
             },
             {
                 "faq_id": "faq_2",
@@ -1168,7 +2441,8 @@ async def startup_db():
                 "answer": "Our PCOD program is a holistic approach combining guided exercises, nutrition planning, and lifestyle modifications. We track your progress with optional cycle logging (with your consent) to provide personalized recommendations.",
                 "category": "women",
                 "order": 2,
-                "is_visible": True
+                "is_visible": True,
+                "deleted_at": None
             },
             {
                 "faq_id": "faq_3",
@@ -1176,7 +2450,8 @@ async def startup_db():
                 "answer": "Yes! We offer online consultations for follow-ups and initial assessments. You'll receive a secure meeting link via WhatsApp/email before your appointment.",
                 "category": "general",
                 "order": 3,
-                "is_visible": True
+                "is_visible": True,
+                "deleted_at": None
             },
             {
                 "faq_id": "faq_4",
@@ -1184,13 +2459,14 @@ async def startup_db():
                 "answer": "We accept UPI, credit/debit cards, net banking, and cash payments. You can also opt for package memberships with convenient payment plans.",
                 "category": "billing",
                 "order": 4,
-                "is_visible": True
+                "is_visible": True,
+                "deleted_at": None
             }
         ]
         await db.faqs.insert_many(default_faqs)
         logger.info("Seeded default FAQs")
     
-    # Seed testimonials if none exist
+    # Seed testimonials
     testimonials_count = await db.testimonials.count_documents({})
     if testimonials_count == 0:
         default_testimonials = [
@@ -1200,7 +2476,9 @@ async def startup_db():
                 "content": "My daughter's motor skills have improved tremendously after just 3 months of therapy. The therapists are so patient and caring with children.",
                 "rating": 5,
                 "is_visible": True,
-                "created_at": datetime.now(timezone.utc).isoformat()
+                "order": 1,
+                "created_at": datetime.now(timezone.utc).isoformat(),
+                "deleted_at": None
             },
             {
                 "testimonial_id": "test_2",
@@ -1208,7 +2486,9 @@ async def startup_db():
                 "content": "The PCOD program has been life-changing. I've lost 8 kgs and my symptoms have reduced significantly. The nutritionist and trainer work so well together!",
                 "rating": 5,
                 "is_visible": True,
-                "created_at": datetime.now(timezone.utc).isoformat()
+                "order": 2,
+                "created_at": datetime.now(timezone.utc).isoformat(),
+                "deleted_at": None
             },
             {
                 "testimonial_id": "test_3",
@@ -1216,14 +2496,16 @@ async def startup_db():
                 "content": "I love the Zumba classes! The instructors make it fun and the timing works perfectly with my schedule. Great facilities and very clean.",
                 "rating": 5,
                 "is_visible": True,
-                "created_at": datetime.now(timezone.utc).isoformat()
+                "order": 3,
+                "created_at": datetime.now(timezone.utc).isoformat(),
+                "deleted_at": None
             }
         ]
         await db.testimonials.insert_many(default_testimonials)
         logger.info("Seeded default testimonials")
     
-    # Create default admin if none exists
-    admin_exists = await db.users.find_one({"role": UserRole.ADMIN.value})
+    # Create default admin
+    admin_exists = await db.users.find_one({"role": UserRole.ADMIN.value, "deleted_at": None})
     if not admin_exists:
         admin_user = {
             "user_id": "user_admin001",
@@ -1233,10 +2515,93 @@ async def startup_db():
             "password_hash": hash_password("admin123"),
             "is_active": True,
             "created_at": datetime.now(timezone.utc).isoformat(),
-            "updated_at": datetime.now(timezone.utc).isoformat()
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+            "deleted_at": None
         }
         await db.users.insert_one(admin_user)
         logger.info("Created default admin user")
+    
+    # Create default system settings
+    settings_exists = await db.settings.find_one({"setting_id": "settings_main"})
+    if not settings_exists:
+        settings = SystemSettings()
+        await db.settings.insert_one(prepare_for_db(settings.model_dump()))
+        logger.info("Created default system settings")
+    
+    # Seed sample exercises
+    exercises_count = await db.exercises.count_documents({})
+    if exercises_count == 0:
+        default_exercises = [
+            {
+                "exercise_id": "ex_stretch_neck",
+                "name": "Neck Stretches",
+                "description": "Gentle neck stretching exercises for pain relief",
+                "category": "flexibility",
+                "instructions": [
+                    "Sit or stand with good posture",
+                    "Slowly tilt head to right, hold 15 seconds",
+                    "Return to center, repeat on left",
+                    "Gently rotate head in circles"
+                ],
+                "contraindications": ["Acute neck injury", "Cervical spine instability"],
+                "pcod_safe": True,
+                "min_age": 10,
+                "max_age": 100,
+                "sets": 2,
+                "reps": 5,
+                "created_by": "user_admin001",
+                "is_active": True,
+                "created_at": datetime.now(timezone.utc).isoformat(),
+                "deleted_at": None
+            },
+            {
+                "exercise_id": "ex_balance_1",
+                "name": "Single Leg Balance",
+                "description": "Balance exercise for coordination and stability",
+                "category": "balance",
+                "instructions": [
+                    "Stand on one leg",
+                    "Hold for 30 seconds",
+                    "Switch legs",
+                    "Repeat 3 times each side"
+                ],
+                "contraindications": ["Severe vertigo", "Lower limb fracture"],
+                "pcod_safe": True,
+                "min_age": 5,
+                "max_age": 80,
+                "sets": 3,
+                "reps": 1,
+                "duration_seconds": 30,
+                "created_by": "user_admin001",
+                "is_active": True,
+                "created_at": datetime.now(timezone.utc).isoformat(),
+                "deleted_at": None
+            },
+            {
+                "exercise_id": "ex_breathing_1",
+                "name": "Diaphragmatic Breathing",
+                "description": "Deep breathing for relaxation and core activation",
+                "category": "breathing",
+                "instructions": [
+                    "Lie on back with knees bent",
+                    "Place hand on belly",
+                    "Breathe in through nose, belly rises",
+                    "Exhale slowly through mouth",
+                    "Repeat for 5 minutes"
+                ],
+                "contraindications": ["None"],
+                "pcod_safe": True,
+                "min_age": 3,
+                "max_age": 100,
+                "duration_seconds": 300,
+                "created_by": "user_admin001",
+                "is_active": True,
+                "created_at": datetime.now(timezone.utc).isoformat(),
+                "deleted_at": None
+            }
+        ]
+        await db.exercises.insert_many(default_exercises)
+        logger.info("Seeded default exercises")
 
 
 @app.on_event("shutdown")
