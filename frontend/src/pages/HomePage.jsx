@@ -257,7 +257,7 @@ const HomePage = () => {
                 {[
                   { icon: Users, title: 'Expert Team', desc: 'Qualified physiotherapists, trainers & nutritionists' },
                   { icon: Clock, title: 'Flexible Timings', desc: 'Morning, evening & weekend slots available' },
-                  { icon: Award, title: 'Proven Results', desc: '98% patient satisfaction rate' },
+                  { icon: Award, title: 'Quality Focus', desc: 'Focused on quality care from day one' },
                   { icon: Activity, title: 'Personalized Plans', desc: 'Customized programs for your unique needs' },
                 ].map((item, index) => (
                   <div key={item.title} className="flex items-start gap-4">
