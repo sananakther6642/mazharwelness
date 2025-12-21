@@ -1,0 +1,135 @@
+{
+  "brand_identity": {
+    "name": "Mazhar Wellness & Paediatric Physio",
+    "archetype": "The Nurturing Guardian",
+    "core_values": ["Safety", "Vitality", "Empathy", "Clinical Excellence"],
+    "emotional_tone": "Calming, Professional, Friendly, Non-intimidating",
+    "visual_style": "Soft Utility x Organic Earthy"
+  },
+  "typography": {
+    "font_family": {
+      "headings": "Nunito, sans-serif",
+      "body": "Manrope, sans-serif",
+      "mono": "JetBrains Mono, monospace"
+    },
+    "import_instruction": "Import fonts via Google Fonts in index.html: <link href='https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700&family=Nunito:wght@400;600;700;800&display=swap' rel='stylesheet'>",
+    "usage_rules": {
+      "headings": "Use Nunito for all H1-H6. Font weight 700 or 800 for H1/H2 to create a friendly, bubbly feel suitable for paediatrics. Letter spacing tight (-0.02em).",
+      "body": "Use Manrope for all paragraphs and UI text. Excellent legibility for medical data.",
+      "buttons": "Nunito, weight 700, uppercase tracking-wide for primary actions."
+    }
+  },
+  "colors": {
+    "palette": {
+      "primary": {
+        "name": "Ocean Teal",
+        "hex": "#2A9D8F",
+        "tailwind": "bg-[#2A9D8F] text-white",
+        "usage": "Primary buttons, active states, key icons"
+      },
+      "secondary": {
+        "name": "Calming Sky",
+        "hex": "#E0F2F1",
+        "tailwind": "bg-[#E0F2F1] text-[#004D40]",
+        "usage": "Backgrounds for cards, secondary buttons, highlight areas"
+      },
+      "accent": {
+        "name": "Warm Sand",
+        "hex": "#F4A261",
+        "tailwind": "bg-[#F4A261] text-white",
+        "usage": "Call to actions (secondary), notifications, warmth accents"
+      },
+      "neutral": {
+        "surface": "#FFFFFF",
+        "background": "#F8FAFC",
+        "text_primary": "#1E293B",
+        "text_secondary": "#64748B"
+      }
+    },
+    "gradients": {
+      "hero": "bg-gradient-to-br from-[#E0F2F1] via-white to-[#FDF2F8]",
+      "card_hover": "hover:bg-gradient-to-br hover:from-white hover:to-[#E0F2F1]"
+    }
+  },
+  "visual_enhancers": {
+    "radius": {
+      "default": "rounded-2xl",
+      "buttons": "rounded-full",
+      "cards": "rounded-3xl"
+    },
+    "shadows": {
+      "soft": "shadow-[0_4px_20px_-2px_rgba(42,157,143,0.1)]",
+      "floating": "shadow-[0_8px_30px_rgba(0,0,0,0.04)]",
+      "inner": "shadow-[inset_0_2px_4px_rgba(0,0,0,0.02)]"
+    },
+    "glassmorphism": {
+      "nav": "bg-white/80 backdrop-blur-md border-b border-slate-100",
+      "overlay": "bg-white/60 backdrop-blur-xl"
+    },
+    "textures": {
+      "noise": "Use a subtle SVG noise overlay on the main background to reduce clinical sterility."
+    }
+  },
+  "layout_strategies": {
+    "public_pages": {
+      "grid_system": "The Tetris Grid (Mode A)",
+      "spacing": "Generous. Section padding py-24 or py-32.",
+      "container": "max-w-7xl mx-auto px-6",
+      "rules": "Avoid symmetry. Use offset images. Place 'blob' shapes in background behind grids."
+    },
+    "dashboards": {
+      "grid_system": "The Control Room (Mode B)",
+      "style": "Soft Utility. Cards should have no borders, just soft shadows and ample padding (p-6).",
+      "sidebar": "Floating sidebar style (detached from edge) with rounded corners."
+    }
+  },
+  "components": {
+    "buttons": {
+      "primary": "h-12 px-8 rounded-full bg-[#2A9D8F] hover:bg-[#21867a] text-white font-bold shadow-lg hover:shadow-xl transition-all hover:-translate-y-0.5",
+      "secondary": "h-12 px-8 rounded-full bg-white border-2 border-[#2A9D8F] text-[#2A9D8F] hover:bg-[#E0F2F1] font-bold"
+    },
+    "cards": {
+      "feature": "bg-white rounded-3xl p-8 shadow-floating hover:shadow-soft transition-all border border-slate-50",
+      "dashboard": "bg-white rounded-2xl p-6 shadow-sm border border-slate-100"
+    },
+    "inputs": {
+      "style": "h-12 rounded-xl border-slate-200 bg-slate-50 focus:bg-white focus:ring-2 focus:ring-[#2A9D8F]/20 transition-all"
+    }
+  },
+  "image_assets": {
+    "hero_section": {
+      "url": "https://images.pexels.com/photos/13731099/pexels-photo-13731099.jpeg",
+      "alt": "Child in physiotherapy session smiling",
+      "position": "Hero Right Side"
+    },
+    "wellness_section": {
+      "url": "https://images.unsplash.com/photo-1617372591382-4ecd2bf8bbc3?crop=entropy&cs=srgb&fm=jpg&q=85",
+      "alt": "Woman doing gentle yoga stretching",
+      "position": "Women's Wellness Feature"
+    },
+    "clinic_interior": {
+      "url": "https://images.unsplash.com/photo-1570105954248-fa0c1376edfe?crop=entropy&cs=srgb&fm=jpg&q=85",
+      "alt": "Bright modern clinic reception area",
+      "position": "About Us / Contact Section"
+    },
+    "placeholders": {
+      "doctor": "https://images.unsplash.com/photo-1559839734-2b71ea197ec2?auto=format&fit=crop&q=80",
+      "logo": "Use a text-based logo with 'Nunito' font: 'Mazhar' in Teal, 'Wellness' in Gray."
+    }
+  },
+  "motion_guidelines": {
+    "transitions": "transition-all duration-300 ease-out",
+    "hover_effects": "Lift up (-translate-y-1) + Shadow increase",
+    "page_load": "Staggered fade-in for grid items (Framer Motion recommended)",
+    "micro_interactions": "Buttons should scale down slightly (0.98) on click."
+  },
+  "universal_guidelines": [
+    "DO NOT use generic 'hospital blue' (#007BFF). Stick to the Teal/Sage palette.",
+    "DO NOT use sharp corners. Everything must be rounded (min rounded-lg).",
+    "Ensure text contrast is high. Use Slate-800 for main text, not pure black.",
+    "Use 'sonner' for all toast notifications.",
+    "All interactive elements MUST have data-testid attributes.",
+    "Mobile responsiveness is critical - check touch targets (min 44px)."
+  ],
+  "instructions_to_main_agent": "You are building a high-trust healthcare platform. Prioritize clarity and calmness. The dashboard should feel like a wellness journal, not a spreadsheet. Use the 'Nunito' font to inject warmth into the UI. Follow the 'Soft Utility' aesthetic for the dashboard: white cards on a soft gray background, no harsh borders."
+}
