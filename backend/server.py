@@ -2809,7 +2809,12 @@ async def startup_db():
     ]
     
     for demo_user in demo_users:
-        existing = await db.users.find_one({"email": demo_user["email"]})
+        existing = await db.users.find_one({
+            "$or": [
+                {"email": demo_user["email"]},
+                {"user_id": demo_user["user_id"]}
+            ]
+        })
         if not existing:
             await db.users.insert_one(demo_user)
             logger.info(f"Created demo user: {demo_user['email']}")
@@ -2834,6 +2839,18 @@ async def startup_db():
                     upsert=True
                 )
                 logger.info("Created client profile for demo client")
+        else:
+            # Update existing user with new credentials if email matches
+            if existing.get("email") == demo_user["email"]:
+                await db.users.update_one(
+                    {"email": demo_user["email"]},
+                    {"$set": {
+                        "password_hash": demo_user["password_hash"],
+                        "role": demo_user["role"],
+                        "is_active": True
+                    }}
+                )
+                logger.info(f"Updated demo user: {demo_user['email']}")
     
     # Create default system settings
     settings_exists = await db.settings.find_one({"setting_id": "settings_main"})
