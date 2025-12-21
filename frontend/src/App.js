@@ -149,6 +149,9 @@ const AppRouter = () => {
         } 
       />
 
+      {/* Role Not Assigned Page */}
+      <Route path="/role-not-assigned" element={<RoleNotAssigned />} />
+
       {/* 404 */}
       <Route path="*" element={<NotFound />} />
     </Routes>
