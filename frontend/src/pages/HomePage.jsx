@@ -39,27 +39,27 @@ const HomePage = () => {
   ];
 
   const stats = [
-    { value: '5000+', label: 'Happy Clients' },
+    { value: '2026', label: 'Launching' },
     { value: '15+', label: 'Expert Staff' },
-    { value: '10+', label: 'Years Experience' },
-    { value: '98%', label: 'Success Rate' },
+    { value: '2025', label: 'Practice Since' },
+    { value: '100%', label: 'Commitment' },
   ];
 
   const testimonials = [
     {
-      name: 'Priya M.',
-      content: "My daughter's motor skills have improved tremendously. The therapists are so patient with children.",
-      rating: 5,
+      name: 'Our Vision',
+      content: "Built on hands-on clinical experience and a patient-first approach. We're excited to bring personalised paediatric and women's wellness care to our community.",
+      type: 'vision',
     },
     {
-      name: 'Anita S.',
-      content: "The PCOD program has been life-changing. I've lost 8 kgs and my symptoms have reduced!",
-      rating: 5,
+      name: 'Our Promise',
+      content: "Designed to deliver structured, ethical, and personalised care. Looking forward to sharing real client experiences after our official launch.",
+      type: 'vision',
     },
     {
-      name: 'Kavitha R.',
-      content: 'I love the Zumba classes! Great instructors and very clean facilities.',
-      rating: 5,
+      name: 'Coming Soon',
+      content: "Excited to begin our wellness journey here. We look forward to sharing testimonials as our story unfolds in 2026.",
+      type: 'preview',
     },
   ];
 
