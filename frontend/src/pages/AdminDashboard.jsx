@@ -24,7 +24,7 @@ import {
   Plus, Edit, Trash2, Eye, Search, Filter, Download,
   TrendingUp, DollarSign, UserPlus, Bell, ChevronRight,
   Building, Image, MessageSquare, HelpCircle, BarChart3,
-  Shield, Activity, Dumbbell
+  Shield, Activity, Dumbbell, AlertTriangle
 } from 'lucide-react';
 
 const AdminDashboard = () => {
