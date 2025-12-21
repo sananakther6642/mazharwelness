@@ -299,16 +299,19 @@ const HomePage = () => {
         </div>
       </section>
 
-      {/* Testimonials */}
+      {/* Testimonials - Pre-Launch */}
       <section className="py-20 bg-[#F8FAFC]" data-testid="testimonials-section">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="text-center mb-16">
             <Badge className="mb-4 bg-[#E0F2F1] text-[#2A9D8F] hover:bg-[#E0F2F1] rounded-full px-4 py-1.5">
-              Testimonials
+              Our Commitment
             </Badge>
             <h2 className="font-heading font-extrabold text-3xl sm:text-4xl text-slate-900 mb-4">
-              What Our Clients Say
+              What We Stand For
             </h2>
+            <p className="text-slate-600 max-w-2xl mx-auto">
+              We look forward to sharing real client experiences after our official launch in 2026.
+            </p>
           </div>
 
           <div className="grid md:grid-cols-3 gap-8">
@@ -319,20 +322,13 @@ const HomePage = () => {
                 data-testid={`testimonial-${index}`}
               >
                 <CardContent className="p-8">
-                  <div className="flex gap-1 mb-4">
-                    {[...Array(testimonial.rating)].map((_, i) => (
-                      <Star key={i} className="w-5 h-5 fill-[#F4A261] text-[#F4A261]" />
-                    ))}
+                  <div className="w-12 h-12 rounded-full bg-[#E0F2F1] flex items-center justify-center mb-4">
+                    <Sparkles className="w-6 h-6 text-[#2A9D8F]" />
                   </div>
                   <p className="text-slate-600 mb-6 leading-relaxed">
                     "{testimonial.content}"
                   </p>
-                  <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-full bg-gradient-to-br from-[#2A9D8F] to-[#21867a] flex items-center justify-center">
-                      <span className="text-white font-bold text-sm">{testimonial.name.charAt(0)}</span>
-                    </div>
-                    <p className="font-heading font-bold text-slate-900">{testimonial.name}</p>
-                  </div>
+                  <p className="font-heading font-bold text-[#2A9D8F]">{testimonial.name}</p>
                 </CardContent>
               </Card>
             ))}
