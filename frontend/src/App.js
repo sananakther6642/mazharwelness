@@ -98,6 +98,16 @@ const AppRouter = () => {
           </ProtectedRoute>
         } 
       />
+      
+      {/* Client alias route */}
+      <Route 
+        path="/client/*" 
+        element={
+          <ProtectedRoute allowedRoles={['client']}>
+            <ClientDashboard />
+          </ProtectedRoute>
+        } 
+      />
 
       {/* Admin Dashboard */}
       <Route 
