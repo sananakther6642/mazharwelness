@@ -310,6 +310,8 @@ class MazharWellnessAPITester:
         # Authentication and protected endpoints
         if self.test_admin_login():
             self.test_protected_endpoints()
+            self.test_exercises_endpoint()
+            self.test_rbac_enforcement()
         
         return self.get_summary()
 
