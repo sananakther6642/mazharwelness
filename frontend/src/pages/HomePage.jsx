@@ -129,12 +129,8 @@ const HomePage = () => {
                   ))}
                 </div>
                 <div>
-                  <div className="flex items-center gap-1">
-                    {[...Array(5)].map((_, i) => (
-                      <Star key={i} className="w-4 h-4 fill-[#F4A261] text-[#F4A261]" />
-                    ))}
-                  </div>
-                  <p className="text-sm text-slate-600">500+ 5-star reviews</p>
+                  <p className="font-heading font-bold text-slate-900">Clinic Established 2026</p>
+                  <p className="text-sm text-slate-600">Physiotherapy Practice Since 2025</p>
                 </div>
               </div>
             </div>
