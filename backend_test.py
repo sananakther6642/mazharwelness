@@ -128,6 +128,94 @@ class MazharWellnessAPITester:
             self.log_test("Guest Booking Creation", False, str(e))
             return False
 
+    def test_exercises_endpoint(self):
+        """Test exercises endpoint with PCOD-safe filter"""
+        if not self.token:
+            self.log_test("Exercises Endpoint", False, "No auth token available")
+            return False
+
+        headers = {"Authorization": f"Bearer {self.token}"}
+        
+        try:
+            # Test exercises endpoint with PCOD-safe filter
+            response = requests.get(
+                f"{self.base_url}/api/exercises?pcod_safe=true",
+                headers=headers,
+                timeout=10
+            )
+            success = response.status_code == 200
+            details = f"Status: {response.status_code}"
+            if success:
+                data = response.json()
+                details += f", PCOD-safe exercises count: {len(data)}"
+                # Check if exercises have required fields
+                if data and len(data) > 0:
+                    first_exercise = data[0]
+                    required_fields = ['exercise_id', 'name', 'pcod_safe', 'contraindications']
+                    missing_fields = [field for field in required_fields if field not in first_exercise]
+                    if missing_fields:
+                        success = False
+                        details += f", Missing fields: {missing_fields}"
+                    elif not first_exercise.get('contraindications'):
+                        success = False
+                        details += ", Missing contraindications (mandatory field)"
+            self.log_test("Exercises with PCOD-safe Filter", success, details)
+            return success
+        except Exception as e:
+            self.log_test("Exercises with PCOD-safe Filter", False, str(e))
+            return False
+
+    def test_rbac_enforcement(self):
+        """Test RBAC enforcement - client cannot access staff/audit endpoints"""
+        # First create a client user for testing
+        try:
+            client_data = {
+                "email": "testclient@test.com",
+                "name": "Test Client",
+                "password": "testpass123",
+                "role": "client"
+            }
+            
+            # Register client
+            response = requests.post(
+                f"{self.base_url}/api/auth/register",
+                json=client_data,
+                timeout=10
+            )
+            
+            if response.status_code == 200:
+                client_token = response.json().get('token')
+                client_headers = {"Authorization": f"Bearer {client_token}"}
+                
+                # Test 1: Client cannot access staff endpoint
+                staff_response = requests.get(
+                    f"{self.base_url}/api/staff",
+                    headers=client_headers,
+                    timeout=10
+                )
+                staff_blocked = staff_response.status_code == 403
+                
+                # Test 2: Client cannot access audit logs
+                audit_response = requests.get(
+                    f"{self.base_url}/api/audit-logs",
+                    headers=client_headers,
+                    timeout=10
+                )
+                audit_blocked = audit_response.status_code == 403
+                
+                success = staff_blocked and audit_blocked
+                details = f"Staff endpoint: {staff_response.status_code}, Audit logs: {audit_response.status_code}"
+                
+                self.log_test("RBAC: Client Access Restrictions", success, details)
+                return success
+            else:
+                self.log_test("RBAC: Client Access Restrictions", False, f"Failed to create test client: {response.status_code}")
+                return False
+                
+        except Exception as e:
+            self.log_test("RBAC: Client Access Restrictions", False, str(e))
+            return False
+
     def test_protected_endpoints(self):
         """Test protected endpoints with admin token"""
         if not self.token:
@@ -151,6 +239,22 @@ class MazharWellnessAPITester:
             self.log_test("Dashboard Stats (Protected)", success, details)
         except Exception as e:
             self.log_test("Dashboard Stats (Protected)", False, str(e))
+
+        # Test system settings (admin only)
+        try:
+            response = requests.get(
+                f"{self.base_url}/api/settings",
+                headers=headers,
+                timeout=10
+            )
+            success = response.status_code == 200
+            details = f"System Settings - Status: {response.status_code}"
+            if success:
+                data = response.json()
+                details += f", Settings keys: {list(data.keys()) if isinstance(data, dict) else 'Array'}"
+            self.log_test("System Settings (Admin)", success, details)
+        except Exception as e:
+            self.log_test("System Settings (Admin)", False, str(e))
 
         # Test guest bookings list (admin only)
         try:
