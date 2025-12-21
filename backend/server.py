@@ -545,6 +545,125 @@ async def assign_staff_to_client(
     return {"message": f"Staff assigned successfully"}
 
 
+# ============ STAFF-SPECIFIC CLIENT ENDPOINTS ============
+
+@api_router.get("/physio/my-clients")
+async def get_physio_clients(
+    current_user: dict = Depends(require_roles(UserRole.ADMIN, UserRole.PHYSIOTHERAPIST))
+):
+    """Get clients assigned to the physiotherapist"""
+    role = current_user["role"]
+    user_id = current_user["user_id"]
+    
+    if role == UserRole.ADMIN.value:
+        # Admin can see all clients
+        clients = await db.users.find(
+            exclude_deleted({"role": UserRole.CLIENT.value}),
+            {"_id": 0, "password_hash": 0}
+        ).to_list(500)
+    else:
+        # Get assigned clients
+        profiles = await db.client_profiles.find(
+            {"assigned_physio": user_id},
+            {"_id": 0, "user_id": 1}
+        ).to_list(500)
+        client_ids = [p["user_id"] for p in profiles]
+        
+        if not client_ids:
+            return []
+        
+        clients = await db.users.find(
+            {"user_id": {"$in": client_ids}, "deleted_at": None},
+            {"_id": 0, "password_hash": 0}
+        ).to_list(500)
+    
+    # Enrich with profiles
+    for client in clients:
+        profile = await db.client_profiles.find_one(
+            {"user_id": client["user_id"]},
+            {"_id": 0}
+        )
+        client["profile"] = profile
+    
+    return clients
+
+
+@api_router.get("/trainer/my-clients")
+async def get_trainer_clients(
+    current_user: dict = Depends(require_roles(UserRole.ADMIN, UserRole.TRAINER))
+):
+    """Get clients assigned to the trainer"""
+    role = current_user["role"]
+    user_id = current_user["user_id"]
+    
+    if role == UserRole.ADMIN.value:
+        clients = await db.users.find(
+            exclude_deleted({"role": UserRole.CLIENT.value}),
+            {"_id": 0, "password_hash": 0}
+        ).to_list(500)
+    else:
+        profiles = await db.client_profiles.find(
+            {"assigned_trainer": user_id},
+            {"_id": 0, "user_id": 1}
+        ).to_list(500)
+        client_ids = [p["user_id"] for p in profiles]
+        
+        if not client_ids:
+            return []
+        
+        clients = await db.users.find(
+            {"user_id": {"$in": client_ids}, "deleted_at": None},
+            {"_id": 0, "password_hash": 0}
+        ).to_list(500)
+    
+    for client in clients:
+        profile = await db.client_profiles.find_one(
+            {"user_id": client["user_id"]},
+            {"_id": 0}
+        )
+        client["profile"] = profile
+    
+    return clients
+
+
+@api_router.get("/nutritionist/my-clients")
+async def get_nutritionist_clients(
+    current_user: dict = Depends(require_roles(UserRole.ADMIN, UserRole.NUTRITIONIST))
+):
+    """Get clients assigned to the nutritionist"""
+    role = current_user["role"]
+    user_id = current_user["user_id"]
+    
+    if role == UserRole.ADMIN.value:
+        clients = await db.users.find(
+            exclude_deleted({"role": UserRole.CLIENT.value}),
+            {"_id": 0, "password_hash": 0}
+        ).to_list(500)
+    else:
+        profiles = await db.client_profiles.find(
+            {"assigned_nutritionist": user_id},
+            {"_id": 0, "user_id": 1}
+        ).to_list(500)
+        client_ids = [p["user_id"] for p in profiles]
+        
+        if not client_ids:
+            return []
+        
+        clients = await db.users.find(
+            {"user_id": {"$in": client_ids}, "deleted_at": None},
+            {"_id": 0, "password_hash": 0}
+        ).to_list(500)
+    
+    for client in clients:
+        profile = await db.client_profiles.find_one(
+            {"user_id": client["user_id"]},
+            {"_id": 0}
+        )
+        client["profile"] = profile
+    
+    return clients
+
+
 # ============ GUEST BOOKING ============
 
 @api_router.post("/guest/booking")
