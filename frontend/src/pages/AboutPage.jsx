@@ -193,7 +193,7 @@ const AboutPage = () => {
               Meet Our Experts
             </h2>
             <p className="text-slate-600 max-w-2xl mx-auto">
-              Our team of qualified professionals brings years of experience and a passion 
+              Our team of qualified professionals brings clinical expertise and a passion 
               for helping you achieve your health goals.
             </p>
           </div>
