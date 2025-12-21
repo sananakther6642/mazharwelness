@@ -97,52 +97,52 @@ const AppRouter = () => {
         } 
       />
 
-      {/* Admin Dashboard - placeholder */}
+      {/* Admin Dashboard */}
       <Route 
         path="/admin/*" 
         element={
           <ProtectedRoute allowedRoles={['admin']}>
-            <DashboardPlaceholder role="Admin" />
+            <AdminDashboard />
           </ProtectedRoute>
         } 
       />
 
-      {/* Reception Dashboard - placeholder */}
+      {/* Reception Dashboard */}
       <Route 
         path="/reception/*" 
         element={
           <ProtectedRoute allowedRoles={['reception', 'admin']}>
-            <DashboardPlaceholder role="Reception" />
+            <ReceptionDashboard />
           </ProtectedRoute>
         } 
       />
 
-      {/* Physiotherapist Dashboard - placeholder */}
+      {/* Physiotherapist Dashboard */}
       <Route 
         path="/physio/*" 
         element={
           <ProtectedRoute allowedRoles={['physiotherapist', 'admin']}>
-            <DashboardPlaceholder role="Physiotherapist" />
+            <PhysioDashboard />
           </ProtectedRoute>
         } 
       />
 
-      {/* Trainer Dashboard - placeholder */}
+      {/* Trainer Dashboard */}
       <Route 
         path="/trainer/*" 
         element={
           <ProtectedRoute allowedRoles={['trainer', 'admin']}>
-            <DashboardPlaceholder role="Trainer" />
+            <TrainerDashboard />
           </ProtectedRoute>
         } 
       />
 
-      {/* Nutritionist Dashboard - placeholder */}
+      {/* Nutritionist Dashboard */}
       <Route 
         path="/nutrition/*" 
         element={
           <ProtectedRoute allowedRoles={['nutritionist', 'admin']}>
-            <DashboardPlaceholder role="Nutritionist" />
+            <NutritionDashboard />
           </ProtectedRoute>
         } 
       />
