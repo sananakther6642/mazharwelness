@@ -193,10 +193,73 @@ const LoginPage = () => {
               </Link>
             </p>
 
-            {/* Demo credentials hint */}
-            <div className="mt-6 p-4 bg-slate-50 rounded-xl">
-              <p className="text-xs text-slate-500 text-center">
-                <strong>Demo Admin:</strong> admin@mazharwellness.com / admin123
+            {/* Demo Logins Section */}
+            <div className="mt-6 pt-6 border-t border-slate-200">
+              <p className="text-sm font-semibold text-slate-700 text-center mb-4">Demo Logins</p>
+              <div className="grid grid-cols-2 gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="h-9 text-xs rounded-lg border-blue-200 hover:bg-blue-50 hover:text-blue-700"
+                  onClick={() => handleDemoLogin('admin@demo.com', 'Demo@12345')}
+                  data-testid="demo-admin-btn"
+                >
+                  🔵 Admin
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="h-9 text-xs rounded-lg border-teal-200 hover:bg-teal-50 hover:text-teal-700"
+                  onClick={() => handleDemoLogin('reception@demo.com', 'Demo@12345')}
+                  data-testid="demo-reception-btn"
+                >
+                  🟢 Reception
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="h-9 text-xs rounded-lg border-green-200 hover:bg-green-50 hover:text-green-700"
+                  onClick={() => handleDemoLogin('physio@demo.com', 'Demo@12345')}
+                  data-testid="demo-physio-btn"
+                >
+                  🩺 Physio
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="h-9 text-xs rounded-lg border-orange-200 hover:bg-orange-50 hover:text-orange-700"
+                  onClick={() => handleDemoLogin('trainer@demo.com', 'Demo@12345')}
+                  data-testid="demo-trainer-btn"
+                >
+                  💪 Trainer
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="h-9 text-xs rounded-lg border-purple-200 hover:bg-purple-50 hover:text-purple-700"
+                  onClick={() => handleDemoLogin('nutrition@demo.com', 'Demo@12345')}
+                  data-testid="demo-nutrition-btn"
+                >
+                  🥗 Nutritionist
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="h-9 text-xs rounded-lg border-pink-200 hover:bg-pink-50 hover:text-pink-700"
+                  onClick={() => handleDemoLogin('client@demo.com', 'Demo@12345')}
+                  data-testid="demo-client-btn"
+                >
+                  👤 Client
+                </Button>
+              </div>
+              <p className="text-xs text-slate-400 text-center mt-3">
+                All demo accounts use password: <code className="bg-slate-100 px-1 rounded">Demo@12345</code>
               </p>
             </div>
           </CardContent>
