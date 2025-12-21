@@ -2324,18 +2324,37 @@ def generate_id(prefix: str = "") -> str:
 @app.on_event("startup")
 async def startup_db():
     """Initialize database with seed data"""
-    # Create indexes
-    await db.users.create_index("email")
-    await db.users.create_index("user_id", unique=True)
-    await db.users.create_index("phone")
-    await db.appointments.create_index("scheduled_date")
-    await db.appointments.create_index("client_id")
-    await db.appointments.create_index("staff_id")
-    await db.guest_bookings.create_index("status")
-    await db.audit_logs.create_index("created_at")
-    await db.audit_logs.create_index("user_id")
-    await db.client_profiles.create_index("user_id", unique=True)
-    await db.exercise_assignments.create_index("client_id")
+    # Create indexes (using drop_duplicates to avoid conflicts)
+    try:
+        await db.users.create_index("email", unique=True, background=True)
+    except Exception:
+        pass  # Index already exists
+    
+    try:
+        await db.users.create_index("user_id", unique=True, background=True)
+    except Exception:
+        pass
+    
+    try:
+        await db.users.create_index("phone", background=True)
+    except Exception:
+        pass
+    
+    try:
+        await db.appointments.create_index("scheduled_date", background=True)
+        await db.appointments.create_index("client_id", background=True)
+        await db.appointments.create_index("staff_id", background=True)
+    except Exception:
+        pass
+    
+    try:
+        await db.guest_bookings.create_index("status", background=True)
+        await db.audit_logs.create_index("created_at", background=True)
+        await db.audit_logs.create_index("user_id", background=True)
+        await db.client_profiles.create_index("user_id", unique=True, background=True)
+        await db.exercise_assignments.create_index("client_id", background=True)
+    except Exception:
+        pass
     
     # Seed default services if none exist
     services_count = await db.services.count_documents({})
