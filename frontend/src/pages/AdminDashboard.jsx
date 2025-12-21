@@ -1275,15 +1275,25 @@ const AdminContent = () => {
           <Card className="rounded-2xl border-0 shadow-sm">
             <CardHeader>
               <div className="flex justify-between items-center">
-                <CardTitle>Testimonials</CardTitle>
-                <Button className="bg-[#2A9D8F]">
-                  <Plus className="w-4 h-4 mr-2" />
-                  Add Testimonial
-                </Button>
+                <div>
+                  <CardTitle>Testimonials</CardTitle>
+                  <p className="text-sm text-slate-500 mt-1">Pre-launch mode - Client testimonials will be available after 2026 launch</p>
+                </div>
+                <Badge className="bg-amber-100 text-amber-700">Preview Mode</Badge>
               </div>
             </CardHeader>
             <CardContent>
-              <p className="text-slate-500 text-center py-8">Manage client testimonials</p>
+              <div className="bg-amber-50 border border-amber-200 rounded-xl p-6 text-center">
+                <AlertTriangle className="w-10 h-10 text-amber-500 mx-auto mb-4" />
+                <h4 className="font-heading font-bold text-lg text-slate-900 mb-2">Testimonials Coming Soon</h4>
+                <p className="text-slate-600 mb-4">
+                  Client testimonials will be collected and displayed after our official launch in 2026.
+                  Currently showing vision statements and pre-launch messaging.
+                </p>
+                <p className="text-sm text-amber-700">
+                  Note: Do not add fake reviews or star ratings before launch.
+                </p>
+              </div>
             </CardContent>
           </Card>
         </TabsContent>
