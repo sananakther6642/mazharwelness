@@ -84,12 +84,12 @@ const AboutPage = () => {
               </p>
               <div className="flex flex-wrap gap-8">
                 <div>
-                  <p className="font-heading font-extrabold text-4xl text-[#2A9D8F]">10+</p>
-                  <p className="text-slate-600">Years Experience</p>
+                  <p className="font-heading font-extrabold text-4xl text-[#2A9D8F]">2026</p>
+                  <p className="text-slate-600">Opening Year</p>
                 </div>
                 <div>
-                  <p className="font-heading font-extrabold text-4xl text-[#2A9D8F]">5000+</p>
-                  <p className="text-slate-600">Happy Clients</p>
+                  <p className="font-heading font-extrabold text-4xl text-[#2A9D8F]">2025</p>
+                  <p className="text-slate-600">Practice Since</p>
                 </div>
                 <div>
                   <p className="font-heading font-extrabold text-4xl text-[#2A9D8F]">15+</p>
