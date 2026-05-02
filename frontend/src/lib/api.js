@@ -1,4 +1,5 @@
 import axios from 'axios';
+import { withBasePath } from './basePath';
 
 const API_URL = process.env.REACT_APP_BACKEND_URL;
 
@@ -32,7 +33,7 @@ api.interceptors.response.use(
       // Only redirect if not already on login/register page
       if (!window.location.pathname.includes('/login') && 
           !window.location.pathname.includes('/register')) {
-        window.location.href = '/login';
+        window.location.href = withBasePath('/login');
       }
     }
     return Promise.reject(error);

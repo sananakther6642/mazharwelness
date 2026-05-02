@@ -4,6 +4,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import { Button } from '../ui/button';
 import { Sheet, SheetContent, SheetTrigger } from '../ui/sheet';
 import { Menu, X, Phone, User, LogOut } from 'lucide-react';
+import { withBasePath } from '../../lib/basePath';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -48,7 +49,7 @@ const Navbar = () => {
 
   const handleLogout = async () => {
     await logout();
-    window.location.href = '/';
+    window.location.href = withBasePath('/');
   };
 
   return (

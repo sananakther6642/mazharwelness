@@ -1,6 +1,7 @@
 import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { Toaster } from './components/ui/sonner';
+import { getBasePath, withBasePath } from './lib/basePath';
 
 // Pages
 import HomePage from './pages/HomePage';
@@ -178,7 +179,7 @@ const NotFound = () => {
         <p className="text-slate-600 mb-8">
           The page you're looking for doesn't exist or has been moved.
         </p>
-        <a href="/">
+        <a href={withBasePath("/")}>
           <button className="h-12 px-8 rounded-full bg-[#2A9D8F] hover:bg-[#21867a] text-white font-bold transition-colors">
             Back to Home
           </button>
@@ -194,7 +195,7 @@ const RoleNotAssigned = () => {
   
   const handleLogout = async () => {
     await logout();
-    window.location.href = '/login';
+    window.location.href = withBasePath('/login');
   };
   
   return (
@@ -217,7 +218,7 @@ const RoleNotAssigned = () => {
           </p>
         </div>
         <div className="space-y-3">
-          <a href="/">
+          <a href={withBasePath("/")}>
             <button className="w-full h-12 rounded-full bg-[#2A9D8F] hover:bg-[#21867a] text-white font-bold transition-colors">
               Back to Home
             </button>
@@ -236,7 +237,7 @@ const RoleNotAssigned = () => {
 
 function App() {
   return (
-    <BrowserRouter>
+    <BrowserRouter basename={getBasePath() || undefined}>
       <AuthProvider>
         <AppRouter />
         <Toaster position="top-center" richColors />
