@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { Link, Routes, Route, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { Button } from '../components/ui/button';
@@ -349,11 +349,7 @@ const PhysioAppointments = () => {
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState('today');
 
-  useEffect(() => {
-    fetchAppointments();
-  }, [filter]);
-
-  const fetchAppointments = async () => {
+  const fetchAppointments = useCallback(async () => {
     try {
       const params = {};
       if (filter === 'today') {
@@ -366,7 +362,11 @@ const PhysioAppointments = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [filter]);
+
+  useEffect(() => {
+    fetchAppointments();
+  }, [fetchAppointments]);
 
   const handleStatusUpdate = async (appointmentId, status) => {
     try {
@@ -969,17 +969,7 @@ const PhysioProgress = () => {
   const [showRecordDialog, setShowRecordDialog] = useState(false);
   const [newMetric, setNewMetric] = useState({ metric_type: 'weight', value: 0, unit: 'kg', notes: '' });
 
-  useEffect(() => {
-    fetchPatients();
-  }, []);
-
-  useEffect(() => {
-    if (selectedPatient) {
-      fetchProgress();
-    }
-  }, [selectedPatient]);
-
-  const fetchPatients = async () => {
+  const fetchPatients = useCallback(async () => {
     try {
       const response = await api.get('/physio/my-clients');
       setPatients(response.data);
@@ -991,9 +981,9 @@ const PhysioProgress = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
-const fetchProgress = async () => {
+  const fetchProgress = useCallback(async () => {
   try {
     const response = await progressAPI.getByClient(selectedPatient);
     const data = response?.data;
@@ -1017,7 +1007,17 @@ const fetchProgress = async () => {
 
     setProgress([]); // prevent crashes
   }
-};
+}, [selectedPatient]);
+
+  useEffect(() => {
+    fetchPatients();
+  }, [fetchPatients]);
+
+  useEffect(() => {
+    if (selectedPatient) {
+      fetchProgress();
+    }
+  }, [selectedPatient, fetchProgress]);
 
 
   const handleRecordProgress = async () => {
@@ -1160,11 +1160,7 @@ const PhysioExercises = () => {
     name: '', description: '', category: 'strengthening', instructions: [], contraindications: ['None']
   });
 
-  useEffect(() => {
-    fetchExercises();
-  }, [category]);
-
-  const fetchExercises = async () => {
+  const fetchExercises = useCallback(async () => {
     try {
       const response = await exerciseAPI.getAll({
   category: category === 'all' ? undefined : category
@@ -1176,7 +1172,11 @@ const PhysioExercises = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [category]);
+
+  useEffect(() => {
+    fetchExercises();
+  }, [fetchExercises]);
 
   const handleAddExercise = async () => {
     if (!newExercise.name || !newExercise.description) {

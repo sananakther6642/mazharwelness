@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { Link, Routes, Route, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { Button } from '../components/ui/button';
@@ -855,11 +855,7 @@ const AdminGuestBookings = () => {
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState('all');
 
-  useEffect(() => {
-    fetchBookings();
-  }, [filter]);
-
-  const fetchBookings = async () => {
+  const fetchBookings = useCallback(async () => {
     try {
       const status = filter === 'all' ? undefined : filter;
       const response = await guestAPI.getBookings(status);
@@ -869,7 +865,11 @@ const AdminGuestBookings = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [filter]);
+
+  useEffect(() => {
+    fetchBookings();
+  }, [fetchBookings]);
 
   const handleUpdateStatus = async (bookingId, status) => {
     try {
@@ -1177,6 +1177,22 @@ const AdminExercises = () => {
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [deletingExercise, setDeletingExercise] = useState(null);
 
+  const fetchExercises = useCallback(async () => {
+    try {
+      const params = {};
+      if (search) params.search = search;
+      if (filters.category !== "all") params.category = filters.category;
+      if (filters.pcod_safe !== "all") params.pcod_safe = filters.pcod_safe === "true";
+
+      const response = await api.get("/exercises", { params });
+      setExercises(response.data);
+    } catch (error) {
+      toast.error("Failed to fetch exercises");
+    } finally {
+      setLoading(false);
+    }
+  }, [search, filters]);
+
 const openEdit = (exercise) => {
   setEditingExercise({
     ...exercise,
@@ -1245,25 +1261,9 @@ const confirmDelete = async () => {
     toast.error(err.response?.data?.detail?.[0]?.msg || "Failed to delete exercise");
   }
 };
-  const fetchExercises = async () => {
-    try {
-      const params = {};
-      if (search) params.search = search;
-      if (filters.category !== "all") params.category = filters.category;
-      if (filters.pcod_safe !== "all") params.pcod_safe = filters.pcod_safe === "true";
-
-      const response = await api.get("/exercises", { params });
-      setExercises(response.data);
-    } catch (error) {
-      toast.error("Failed to fetch exercises");
-    } finally {
-      setLoading(false);
-    }
-  };
-
   useEffect(() => {
     fetchExercises();
-  }, [filters]);
+  }, [fetchExercises]);
 
   // ✅ MUST be async
   const handleCreateExercise = async () => {

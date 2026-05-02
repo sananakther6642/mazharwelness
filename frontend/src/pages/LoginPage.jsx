@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { Button } from '../components/ui/button';
@@ -18,20 +18,13 @@ const LoginPage = () => {
   const navigate = useNavigate();
   const location = useLocation();
 
-  useEffect(() => {
-    // If already authenticated, redirect to appropriate dashboard
-    if (isAuthenticated && user) {
-      redirectToDashboard(user.role);
-    }
-  }, [isAuthenticated, user]);
-
-  const redirectToDashboard = (role) => {
+  const redirectToDashboard = useCallback((role) => {
     const from = location.state?.from?.pathname;
     if (from) {
       navigate(from);
       return;
     }
-    
+
     switch (role) {
       case 'admin':
         navigate('/admin');
@@ -51,7 +44,14 @@ const LoginPage = () => {
       default:
         navigate('/dashboard');
     }
-  };
+  }, [location.state, navigate]);
+
+  useEffect(() => {
+    // If already authenticated, redirect to appropriate dashboard
+    if (isAuthenticated && user) {
+      redirectToDashboard(user.role);
+    }
+  }, [isAuthenticated, user, redirectToDashboard]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();

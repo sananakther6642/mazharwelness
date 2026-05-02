@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { Link, Routes, Route, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { Button } from '../components/ui/button';
@@ -968,11 +968,7 @@ const TrainerExercises = () => {
     name: '', description: '', category: 'strengthening', instructions: [], contraindications: ['None'], pcod_safe: true
   });
 
-  useEffect(() => {
-    fetchExercises();
-  }, [category]);
-
-  const fetchExercises = async () => {
+  const fetchExercises = useCallback(async () => {
     try {
       const response = await exerciseAPI.getAll({
   category: category === 'all' ? undefined : category,
@@ -983,7 +979,11 @@ const TrainerExercises = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [category]);
+
+  useEffect(() => {
+    fetchExercises();
+  }, [fetchExercises]);
 
   const handleAddExercise = async () => {
     if (!newExercise.name || !newExercise.description) {
@@ -1130,17 +1130,7 @@ const TrainerProgress = () => {
   const [showRecordDialog, setShowRecordDialog] = useState(false);
   const [newMetric, setNewMetric] = useState({ metric_type: 'weight', value: 0, unit: 'kg', notes: '' });
 
-  useEffect(() => {
-    fetchMembers();
-  }, []);
-
-  useEffect(() => {
-    if (selectedMember) {
-      fetchProgress();
-    }
-  }, [selectedMember]);
-
-  const fetchMembers = async () => {
+  const fetchMembers = useCallback(async () => {
     try {
       const response = await api.get('/trainer/my-clients');
       setMembers(response.data);
@@ -1152,9 +1142,9 @@ const TrainerProgress = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
- const fetchProgress = async () => {
+  const fetchProgress = useCallback(async () => {
   try {
     const response = await progressAPI.getByClient(selectedMember);
     const data = response?.data;
@@ -1177,8 +1167,17 @@ const TrainerProgress = () => {
     console.error('Error:', error);
     setProgress([]); // prevent crashes
   }
-};
+  }, [selectedMember]);
 
+  useEffect(() => {
+    fetchMembers();
+  }, [fetchMembers]);
+
+  useEffect(() => {
+    if (selectedMember) {
+      fetchProgress();
+    }
+  }, [selectedMember, fetchProgress]);
 
   const handleRecordProgress = async () => {
     if (!selectedMember) return;

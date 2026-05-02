@@ -6,59 +6,58 @@ import { Tabs, TabsList, TabsTrigger } from '../components/ui/tabs';
 import { contentAPI } from '../lib/api';
 import { Image } from 'lucide-react';
 
+const staticImages = [
+  {
+    url: 'https://images.pexels.com/photos/13731099/pexels-photo-13731099.jpeg?auto=compress&cs=tinysrgb&w=800',
+    caption: 'Paediatric therapy session',
+    category: 'physiotherapy',
+  },
+  {
+    url: 'https://images.unsplash.com/photo-1617372591382-4ecd2bf8bbc3?auto=format&fit=crop&q=80&w=800',
+    caption: 'Yoga and wellness',
+    category: 'fitness',
+  },
+  {
+    url: 'https://images.unsplash.com/photo-1570105954248-fa0c1376edfe?auto=format&fit=crop&q=80&w=800',
+    caption: 'Our clinic reception',
+    category: 'facility',
+  },
+  {
+    url: 'https://images.unsplash.com/photo-1594381898411-846e7d193883?auto=format&fit=crop&q=80&w=800',
+    caption: 'Group fitness class',
+    category: 'fitness',
+  },
+  {
+    url: 'https://images.unsplash.com/photo-1576678927484-cc907957088c?auto=format&fit=crop&q=80&w=800',
+    caption: 'Modern gym equipment',
+    category: 'facility',
+  },
+  {
+    url: 'https://images.unsplash.com/photo-1518611012118-696072aa579a?auto=format&fit=crop&q=80&w=800',
+    caption: 'Stretching exercises',
+    category: 'physiotherapy',
+  },
+  {
+    url: 'https://images.unsplash.com/photo-1571019614242-c5c5dee9f50b?auto=format&fit=crop&q=80&w=800',
+    caption: 'Personal training session',
+    category: 'fitness',
+  },
+  {
+    url: 'https://images.unsplash.com/photo-1540497077202-7c8a3999166f?auto=format&fit=crop&q=80&w=800',
+    caption: 'Wellness consultation room',
+    category: 'facility',
+  },
+  {
+    url: 'https://images.unsplash.com/photo-1575052814086-f385e2e2ad1b?auto=format&fit=crop&q=80&w=800',
+    caption: 'Yoga class in progress',
+    category: 'fitness',
+  },
+];
+
 const GalleryPage = () => {
   const [images, setImages] = useState([]);
   const [loading, setLoading] = useState(true);
   const [activeCategory, setActiveCategory] = useState('all');
-
-  // Static gallery images
-  const staticImages = [
-    {
-      url: 'https://images.pexels.com/photos/13731099/pexels-photo-13731099.jpeg?auto=compress&cs=tinysrgb&w=800',
-      caption: 'Paediatric therapy session',
-      category: 'physiotherapy',
-    },
-    {
-      url: 'https://images.unsplash.com/photo-1617372591382-4ecd2bf8bbc3?auto=format&fit=crop&q=80&w=800',
-      caption: 'Yoga and wellness',
-      category: 'fitness',
-    },
-    {
-      url: 'https://images.unsplash.com/photo-1570105954248-fa0c1376edfe?auto=format&fit=crop&q=80&w=800',
-      caption: 'Our clinic reception',
-      category: 'facility',
-    },
-    {
-      url: 'https://images.unsplash.com/photo-1594381898411-846e7d193883?auto=format&fit=crop&q=80&w=800',
-      caption: 'Group fitness class',
-      category: 'fitness',
-    },
-    {
-      url: 'https://images.unsplash.com/photo-1576678927484-cc907957088c?auto=format&fit=crop&q=80&w=800',
-      caption: 'Modern gym equipment',
-      category: 'facility',
-    },
-    {
-      url: 'https://images.unsplash.com/photo-1518611012118-696072aa579a?auto=format&fit=crop&q=80&w=800',
-      caption: 'Stretching exercises',
-      category: 'physiotherapy',
-    },
-    {
-      url: 'https://images.unsplash.com/photo-1571019614242-c5c5dee9f50b?auto=format&fit=crop&q=80&w=800',
-      caption: 'Personal training session',
-      category: 'fitness',
-    },
-    {
-      url: 'https://images.unsplash.com/photo-1540497077202-7c8a3999166f?auto=format&fit=crop&q=80&w=800',
-      caption: 'Wellness consultation room',
-      category: 'facility',
-    },
-    {
-      url: 'https://images.unsplash.com/photo-1575052814086-f385e2e2ad1b?auto=format&fit=crop&q=80&w=800',
-      caption: 'Yoga class in progress',
-      category: 'fitness',
-    },
-  ];
 
   useEffect(() => {
     const fetchGallery = async () => {

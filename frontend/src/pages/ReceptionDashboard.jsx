@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { Link, Routes, Route, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { Button } from '../components/ui/button';
@@ -314,11 +314,7 @@ const ReceptionAppointments = () => {
     scheduled_date: '', scheduled_time: '', duration_minutes: 60
   });
 
-  useEffect(() => {
-    fetchData();
-  }, [selectedDate]);
-
-  const fetchData = async () => {
+  const fetchData = useCallback(async () => {
     try {
       const dateStr = format(selectedDate, 'yyyy-MM-dd');
       const [aptsRes, clientsRes, staffRes, servicesRes] = await Promise.all([
@@ -336,7 +332,11 @@ const ReceptionAppointments = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [selectedDate]);
+
+  useEffect(() => {
+    fetchData();
+  }, [fetchData]);
 
   const handleCreateAppointment = async () => {
     if (!newApt.client_id || !newApt.service_id || !newApt.staff_id || !newApt.scheduled_date || !newApt.scheduled_time) {
@@ -557,11 +557,7 @@ const ReceptionGuestBookings = () => {
     email: '', password: '', client_type: 'parent', child_name: '', child_age: '', age: ''
   });
 
-  useEffect(() => {
-    fetchBookings();
-  }, [filter]);
-
-  const fetchBookings = async () => {
+  const fetchBookings = useCallback(async () => {
     try {
       const status = filter === 'all' ? undefined : filter;
       const response = await guestAPI.getBookings(status);
@@ -571,7 +567,11 @@ const ReceptionGuestBookings = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [filter]);
+
+  useEffect(() => {
+    fetchBookings();
+  }, [fetchBookings]);
 
   const handleUpdateStatus = async (bookingId, status) => {
     try {

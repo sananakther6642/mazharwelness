@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { Link, Routes, Route, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { Button } from '../components/ui/button';
@@ -867,17 +867,7 @@ const NutritionProgress = () => {
   const [showRecordDialog, setShowRecordDialog] = useState(false);
   const [newMetric, setNewMetric] = useState({ metric_type: 'weight', value: 0, unit: 'kg', notes: '' });
 
-  useEffect(() => {
-    fetchClients();
-  }, []);
-
-  useEffect(() => {
-    if (selectedClient) {
-      fetchProgress();
-    }
-  }, [selectedClient]);
-
-  const fetchClients = async () => {
+  const fetchClients = useCallback(async () => {
     try {
       const response = await api.get('/nutritionist/my-clients');
       setClients(response.data);
@@ -889,9 +879,9 @@ const NutritionProgress = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
- const fetchProgress = async () => {
+  const fetchProgress = useCallback(async () => {
   try {
     const response = await progressAPI.getByClient(selectedClient);
     const data = response?.data;
@@ -914,7 +904,17 @@ const NutritionProgress = () => {
     console.error('Error:', error);
     setProgress([]); // prevent crash
   }
-};
+}, [selectedClient]);
+
+  useEffect(() => {
+    fetchClients();
+  }, [fetchClients]);
+
+  useEffect(() => {
+    if (selectedClient) {
+      fetchProgress();
+    }
+  }, [selectedClient, fetchProgress]);
 
   const handleRecordProgress = async () => {
     if (!selectedClient) return;
