@@ -993,14 +993,32 @@ const PhysioProgress = () => {
     }
   };
 
-  const fetchProgress = async () => {
-    try {
-      const response = await progressAPI.getByClient(selectedPatient);
-      setProgress(response.data);
-    } catch (error) {
-      console.error('Error:', error);
-    }
-  };
+const fetchProgress = async () => {
+  try {
+    const response = await progressAPI.getByClient(selectedPatient);
+    const data = response?.data;
+
+    // Normalize to array no matter what backend returns
+    const rows = Array.isArray(data)
+      ? data
+      : Array.isArray(data?.items)
+        ? data.items
+        : Array.isArray(data?.data)
+          ? data.data
+          : Array.isArray(data?.progress)
+            ? data.progress
+            : data
+              ? [data]
+              : [];
+
+    setProgress(rows);
+  } catch (error) {
+    console.error('Error:', error);
+
+    setProgress([]); // prevent crashes
+  }
+};
+
 
   const handleRecordProgress = async () => {
     if (!selectedPatient) {
@@ -1136,7 +1154,7 @@ const PhysioExercises = () => {
   const [exercises, setExercises] = useState([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
-  const [category, setCategory] = useState('');
+  const [category, setCategory] = useState('all');
   const [showAddDialog, setShowAddDialog] = useState(false);
   const [newExercise, setNewExercise] = useState({
     name: '', description: '', category: 'strengthening', instructions: [], contraindications: ['None']
@@ -1148,7 +1166,10 @@ const PhysioExercises = () => {
 
   const fetchExercises = async () => {
     try {
-      const response = await exerciseAPI.getAll({ category: category || undefined });
+      const response = await exerciseAPI.getAll({
+  category: category === 'all' ? undefined : category
+  });
+
       setExercises(response.data);
     } catch (error) {
       toast.error('Failed to fetch exercises');
@@ -1189,7 +1210,8 @@ const PhysioExercises = () => {
               <SelectValue placeholder="All categories" />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="">All</SelectItem>
+              <SelectItem value="all">All</SelectItem>
+
               <SelectItem value="strengthening">Strengthening</SelectItem>
               <SelectItem value="stretching">Stretching</SelectItem>
               <SelectItem value="balance">Balance</SelectItem>
@@ -1197,6 +1219,12 @@ const PhysioExercises = () => {
               <SelectItem value="functional">Functional</SelectItem>
             </SelectContent>
           </Select>
+           <Input
+    placeholder="Search exercises..."
+    value={search}
+    onChange={(e) => setSearch(e.target.value)}
+    className="w-56"
+  />
           <Dialog open={showAddDialog} onOpenChange={setShowAddDialog}>
             <DialogTrigger asChild>
               <Button className="bg-[#2A9D8F]">

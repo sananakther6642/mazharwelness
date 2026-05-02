@@ -239,7 +239,7 @@ const NutritionOverview = ({ stats }) => {
 const NutritionClients = () => {
   const [clients, setClients] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [search, setSearch] = useState('');
+  const [search, setSearch] = useState('all');
 
   useEffect(() => {
     fetchClients();
@@ -891,14 +891,30 @@ const NutritionProgress = () => {
     }
   };
 
-  const fetchProgress = async () => {
-    try {
-      const response = await progressAPI.getByClient(selectedClient);
-      setProgress(response.data);
-    } catch (error) {
-      console.error('Error:', error);
-    }
-  };
+ const fetchProgress = async () => {
+  try {
+    const response = await progressAPI.getByClient(selectedClient);
+    const data = response?.data;
+
+    // Normalize to array no matter what backend returns
+    const rows = Array.isArray(data)
+      ? data
+      : Array.isArray(data?.items)
+        ? data.items
+        : Array.isArray(data?.data)
+          ? data.data
+          : Array.isArray(data?.progress)
+            ? data.progress
+            : data
+              ? [data]
+              : [];
+
+    setProgress(rows);
+  } catch (error) {
+    console.error('Error:', error);
+    setProgress([]); // prevent crash
+  }
+};
 
   const handleRecordProgress = async () => {
     if (!selectedClient) return;
@@ -1008,7 +1024,8 @@ const NutritionProgress = () => {
                   <TableCell colSpan={4} className="text-center py-8 text-slate-500">No progress records</TableCell>
                 </TableRow>
               ) : (
-                progress.map((p) => (
+                (Array.isArray(progress) ? progress : []).map((p) => (
+
                   <TableRow key={p.metric_id}>
                     <TableCell>{p.recorded_at?.split('T')[0]}</TableCell>
                     <TableCell className="capitalize">{p.metric_type?.replace('_', ' ')}</TableCell>

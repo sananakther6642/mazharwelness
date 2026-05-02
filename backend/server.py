@@ -63,8 +63,41 @@ logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
+def now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
 
 
+def role_scope_targets(role: str) -> List[str]:
+    """
+    Return a list of "target keys" that should match a user's role.
+    We'll store notifications with target fields like:
+    - target_user_id: specific user
+    - target_roles: list of roles
+    - target_scope: string like 'all', 'staff', 'reception_admin'
+    """
+    role = (role or "").lower()
+    scopes = ["all", "auth"]
+
+    if role in ["admin"]:
+        scopes += ["admin", "reception_admin", "staff"]
+    elif role in ["reception"]:
+        scopes += ["reception", "reception_admin", "staff"]
+    elif role in ["physiotherapist", "trainer", "nutritionist"]:
+        scopes += ["staff"]
+        scopes += [role]  # e.g. "physiotherapist"
+    elif role in ["client"]:
+        scopes += ["client"]
+    return scopes
+
+
+
+async def get_users_by_roles(roles: list[str]) -> list[str]:
+    cursor = db.users.find(
+        {"role": {"$in": roles}, "deleted_at": None},
+        {"_id": 0, "user_id": 1}
+    )
+    users = await cursor.to_list(length=500)
+    return [u["user_id"] for u in users]
 # ============ UTILITY FUNCTIONS ============
 
 def serialize_datetime(obj):
@@ -675,13 +708,25 @@ async def create_guest_booking(booking: GuestBookingCreate, request: Request):
     await db.guest_bookings.insert_one(booking_dict)
     
     # Create notification for reception/admin
-    notification = Notification(
-        user_id="admin_broadcast",
-        title="New Guest Booking",
-        message=f"New booking from {booking.full_name} for {booking.service_category.value}",
-        notification_type=NotificationType.APPOINTMENT
+   
+    notif = Notification(
+    user_id="system",
+    title="New Guest Booking",
+    message=f"New booking from {booking.full_name} for {booking.service_category.value}",
+    notification_type=NotificationType.APPOINTMENT
     )
-    await db.notifications.insert_one(prepare_for_db(notification.model_dump()))
+
+    notif_doc = prepare_for_db(notif.model_dump())
+    notif_doc.update({
+        "target_scope": "reception_admin",
+        "target_roles": ["admin", "reception"],
+        "target_user_id": None,
+        "created_at": now_iso(),
+        "read_by": [],          # ✅ per-user read tracking
+        "is_read": False,       # optional legacy field
+    })
+    await db.notifications.insert_one(notif_doc)
+
     
     return {
         "booking_id": guest_booking.booking_id,
@@ -1831,26 +1876,6 @@ async def create_class(
     await db.classes.insert_one(class_record)
     return {"class_id": class_record["class_id"], "message": "Class created"}
 
-
-@api_router.post("/attendance/check-in")
-async def check_in(
-    data: dict = Body(...),
-    current_user: dict = Depends(require_any_staff())
-):
-    """Check in a client"""
-    from uuid import uuid4
-    attendance = {
-        "attendance_id": f"att_{str(uuid4())[:8]}",
-        "client_id": data.get("client_id"),
-        "appointment_id": data.get("appointment_id"),
-        "class_id": data.get("class_id"),
-        "check_in": datetime.now(timezone.utc).isoformat(),
-        "recorded_by": current_user["user_id"]
-    }
-    await db.attendance.insert_one(attendance)
-    return {"attendance_id": attendance["attendance_id"], "message": "Check-in recorded"}
-
-
 # ============ DIET TEMPLATES ============
 
 @api_router.get("/diet-templates")
@@ -2182,18 +2207,92 @@ async def mock_complete_payment(
 
 
 # ============ NOTIFICATIONS ============
+# ============ NOTIFICATIONS (FULL) ============
 
 @api_router.get("/notifications")
 async def get_notifications(
+    scope: Optional[str] = Query(None, description="Optional: all | staff | reception_admin | admin | reception | client | etc."),
+    unread_only: bool = Query(False),
+    limit: int = Query(50, ge=1, le=200),
     current_user: dict = Depends(get_current_user)
 ):
-    """Get user's notifications"""
-    notifications = await db.notifications.find(
-        {"user_id": current_user["user_id"]},
-        {"_id": 0}
-    ).sort("created_at", -1).to_list(50)
-    
+    """
+    Return notifications visible to the current user:
+    - direct notifications targeted to target_user_id == current user
+    - role/scope based notifications targeted to user's role/scopes
+    """
+    user_id = current_user["user_id"]
+    role = current_user.get("role")
+
+    scopes = role_scope_targets(role)
+
+    query_or = [
+        {"target_user_id": user_id},
+        {"target_scope": {"$in": scopes}},
+        {"target_roles": {"$in": [role]}},
+    ]
+
+    # Backward compatibility: if you previously stored by user_id directly
+    query_or.append({"user_id": user_id})
+
+    q = exclude_deleted({"$or": query_or})
+
+    if scope:
+        # caller wants only a specific scope
+        q["target_scope"] = scope
+
+    if unread_only:
+        q["is_read"] = False
+
+    notifications = await db.notifications.find(q, {"_id": 0}).sort("created_at", -1).to_list(limit)
+
+    # Ensure keys exist for frontend safety
+    for n in notifications:
+        n.setdefault("created_at", now_iso())
+
+        # If it's a broadcast notification, use read_by
+        if n.get("target_user_id") is None and (n.get("target_scope") or n.get("target_roles")):
+            read_by = n.get("read_by") or []
+            n["is_read"] = (user_id in read_by)
+        else:
+            # Direct notification (or legacy)
+            n.setdefault("is_read", False)
+
+
     return notifications
+
+
+@api_router.get("/notifications/unread-count")
+async def get_unread_count(current_user: dict = Depends(get_current_user)):
+    user_id = current_user["user_id"]
+    role = current_user.get("role")
+    scopes = role_scope_targets(role)
+
+    query_or = [
+        {"target_user_id": user_id},
+        {"target_scope": {"$in": scopes}},
+        {"target_roles": {"$in": [role]}},
+        {"user_id": user_id},  # backward compatibility
+    ]
+
+    q = exclude_deleted({"$or": query_or})
+
+    # Pull a reasonable window (increase if you want)
+    docs = await db.notifications.find(q, {"_id": 0}).sort("created_at", -1).to_list(500)
+
+    unread = 0
+    for n in docs:
+        is_broadcast = (n.get("target_user_id") is None and (n.get("target_scope") or n.get("target_roles")))
+        if is_broadcast:
+            read_by = n.get("read_by") or []
+            if user_id not in read_by:
+                unread += 1
+        else:
+            if not n.get("is_read", False):
+                unread += 1
+
+    return {"unread": unread}
+
 
 
 @api_router.put("/notifications/{notification_id}/read")
@@ -2201,38 +2300,172 @@ async def mark_notification_read(
     notification_id: str,
     current_user: dict = Depends(get_current_user)
 ):
-    """Mark notification as read"""
-    await db.notifications.update_one(
-        {"notification_id": notification_id, "user_id": current_user["user_id"]},
-        {"$set": {"is_read": True, "read_at": datetime.now(timezone.utc).isoformat()}}
+    """
+    Mark a notification as read if the user is allowed to see it.
+    """
+    user_id = current_user["user_id"]
+    role = current_user.get("role")
+    scopes = role_scope_targets(role)
+
+    # Only allow marking read if user has access
+    access_or = [
+        {"target_user_id": user_id},
+        {"target_scope": {"$in": scopes}},
+        {"target_roles": {"$in": [role]}},
+        {"user_id": user_id},  # backward compatibility
+    ]
+
+    notif = await db.notifications.find_one(
+    exclude_deleted({"notification_id": notification_id, "$or": access_or}),{"_id": 0}
     )
+    if not notif:
+        raise HTTPException(status_code=404, detail="Notification not found")
+
+    is_broadcast = (
+        notif.get("target_user_id") is None and
+        (notif.get("target_scope") or notif.get("target_roles"))
+    )
+
+    if is_broadcast:
+        # ✅ per-user read: add current user to read_by
+        await db.notifications.update_one(
+            {"notification_id": notification_id},
+            {
+                "$addToSet": {"read_by": user_id},
+                "$set": {"updated_at": now_iso()}
+            }
+        )
+    else:
+        # direct notification: classic is_read
+        await db.notifications.update_one(
+            {"notification_id": notification_id},
+            {"$set": {"is_read": True, "read_at": now_iso(), "updated_at": now_iso()}}
+        )
+
     return {"message": "Notification marked as read"}
+
+
+
+@api_router.put("/notifications/mark-all-read")
+async def mark_all_read(
+    scope: Optional[str] = Query(None),
+    current_user: dict = Depends(get_current_user)
+):
+    user_id = current_user["user_id"]
+    role = current_user.get("role")
+    scopes = role_scope_targets(role)
+
+    query_or = [
+        {"target_user_id": user_id},
+        {"target_scope": {"$in": scopes}},
+        {"target_roles": {"$in": [role]}},
+        {"user_id": user_id},
+    ]
+
+    q = exclude_deleted({"$or": query_or})
+    if scope:
+        q["target_scope"] = scope
+
+    docs = await db.notifications.find(q, {"_id": 0, "notification_id": 1, "target_user_id": 1, "target_scope": 1, "target_roles": 1}).to_list(1000)
+
+    direct_ids = []
+    broadcast_ids = []
+
+    for n in docs:
+        is_broadcast = (n.get("target_user_id") is None and (n.get("target_scope") or n.get("target_roles")))
+        if is_broadcast:
+            broadcast_ids.append(n["notification_id"])
+        else:
+            direct_ids.append(n["notification_id"])
+
+    updated = 0
+
+    if direct_ids:
+        res = await db.notifications.update_many(
+            {"notification_id": {"$in": direct_ids}},
+            {"$set": {"is_read": True, "read_at": now_iso(), "updated_at": now_iso()}}
+        )
+        updated += res.modified_count
+
+    if broadcast_ids:
+        res = await db.notifications.update_many(
+            {"notification_id": {"$in": broadcast_ids}},
+            {"$addToSet": {"read_by": user_id}, "$set": {"updated_at": now_iso()}}
+        )
+        updated += res.modified_count
+
+    return {"message": "All notifications marked as read", "updated": updated}
+
 
 
 @api_router.post("/notifications/send")
 async def send_notification(
-    user_ids: List[str] = Body(...),
+    user_ids: Optional[List[str]] = Body(default=None),
     title: str = Body(...),
     message: str = Body(...),
     notification_type: NotificationType = Body(NotificationType.SYSTEM),
+    target_scope: Optional[str] = Body(default=None, description="all | staff | reception_admin | ..."),
+    target_roles: Optional[List[str]] = Body(default=None, description="['admin','reception'] etc"),
+    action_url: Optional[str] = Body(default=None),
     current_user: dict = Depends(require_roles(UserRole.ADMIN, UserRole.RECEPTION))
 ):
-    """Send notification to users"""
+    """
+    Send notifications:
+    - to explicit user_ids, OR
+    - to a target_scope (broadcast), OR
+    - to target_roles (broadcast)
+    """
+    if not user_ids and not target_scope and not target_roles:
+        raise HTTPException(status_code=400, detail="Provide user_ids or target_scope or target_roles")
+
     notifications = []
-    for user_id in user_ids:
+
+    # Direct user notifications
+    if user_ids:
+        for uid in user_ids:
+            notif = Notification(
+                user_id=uid,
+                title=title,
+                message=message,
+                notification_type=notification_type,
+                action_url=action_url
+            )
+            doc = prepare_for_db(notif.model_dump())
+            doc.update({
+                "target_user_id": uid,
+                "target_scope": None,
+                "target_roles": None,
+                "is_read": False,
+                "created_at": now_iso(),
+            })
+            notifications.append(doc)
+
+    # Broadcast notification (single doc)
+
+    if target_scope or target_roles:
         notif = Notification(
-            user_id=user_id,
+            user_id="system",
             title=title,
             message=message,
-            notification_type=notification_type
+            notification_type=notification_type,
+            action_url=action_url
         )
-        notifications.append(prepare_for_db(notif.model_dump()))
-    
+        doc = prepare_for_db(notif.model_dump())
+        doc.update({
+            "target_user_id": None,
+            "target_scope": target_scope,
+            "target_roles": target_roles,
+            "created_at": now_iso(),
+            "read_by": [],     # ✅
+            "is_read": False,  # optional legacy
+        })
+        notifications.append(doc)
+
+
     if notifications:
         await db.notifications.insert_many(notifications)
-    
-    return {"message": f"Sent {len(notifications)} notifications"}
 
+    return {"message": f"Sent {len(notifications)} notification(s)"}
 
 # ============ ATTENDANCE ============
 

@@ -15,7 +15,7 @@ import { Switch } from '../components/ui/switch';
 import { toast } from 'sonner';
 import { 
   staffAPI, serviceAPI, packageAPI, clientAPI, guestAPI, 
-  dashboardAPI, appointmentAPI, invoiceAPI, contentAPI 
+  dashboardAPI, appointmentAPI, invoiceAPI, contentAPI,exerciseAPI
 } from '../lib/api';
 import api from '../lib/api';
 import { 
@@ -26,6 +26,27 @@ import {
   Building, Image, MessageSquare, HelpCircle, BarChart3,
   Shield, Activity, Dumbbell, AlertTriangle
 } from 'lucide-react';
+import NotificationBell from "../components/ui/NotificationBell";
+
+const toErrorMessage = (err) => {
+  const data = err?.response?.data;
+
+  // FastAPI validation errors often look like: { detail: [ { msg, loc, ... } ] }
+  if (Array.isArray(data?.detail)) {
+    return data.detail.map((e) => e?.msg || JSON.stringify(e)).join(", ");
+  }
+
+  // Sometimes detail is a string
+  if (typeof data?.detail === "string") return data.detail;
+
+  // Common fallbacks
+  if (typeof data?.message === "string") return data.message;
+  if (typeof err?.message === "string") return err.message;
+
+  return "Request failed";
+};
+
+
 
 const AdminDashboard = () => {
   const { user, logout } = useAuth();
@@ -34,6 +55,11 @@ const AdminDashboard = () => {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [stats, setStats] = useState({});
   const [loading, setLoading] = useState(true);
+    const [filters, setFilters] = useState({ category: 'all', pcod_safe: 'all' });
+
+
+
+  
 
   useEffect(() => {
     if (!user || user.role !== 'admin') {
@@ -161,10 +187,10 @@ const AdminDashboard = () => {
             </div>
 
             <div className="flex items-center gap-4">
-              <button className="relative p-2 rounded-lg hover:bg-slate-100" data-testid="admin-notifications">
-                <Bell className="w-5 h-5 text-slate-600" />
-                <span className="absolute top-1 right-1 w-2 h-2 bg-red-500 rounded-full"></span>
-              </button>
+           
+             <NotificationBell />
+
+
               <div className="flex items-center gap-3">
                 <div className="w-10 h-10 rounded-full bg-slate-900 flex items-center justify-center">
                   <span className="text-white font-bold">{user?.name?.charAt(0) || 'A'}</span>
@@ -537,12 +563,28 @@ const AdminStaff = () => {
                     </TableCell>
                     <TableCell>
                       <div className="flex gap-2">
-                        <Button variant="ghost" size="sm">
-                          <Edit className="w-4 h-4" />
-                        </Button>
-                        <Button variant="ghost" size="sm" className="text-red-500 hover:text-red-700">
-                          <Trash2 className="w-4 h-4" />
-                        </Button>
+                      <Button
+  variant="ghost"
+  size="sm"
+  type="button"
+  onClick={(e) => { e.stopPropagation(); openEdit(exercise); }}
+
+>
+  <Edit className="w-4 h-4" />
+</Button>
+
+<Button
+  variant="ghost"
+  size="sm"
+  type="button"
+  className="text-red-500"
+  onClick={(e) => { e.stopPropagation(); openDelete(exercise); }}
+
+>
+  <Trash2 className="w-4 h-4" />
+</Button>
+
+
                       </div>
                     </TableCell>
                   </TableRow>
@@ -1113,27 +1155,153 @@ const AdminBilling = () => {
 const AdminExercises = () => {
   const [exercises, setExercises] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [search, setSearch] = useState('');
-  const [filters, setFilters] = useState({ category: '', pcod_safe: '' });
+  const [search, setSearch] = useState("");
+  const [filters, setFilters] = useState({ category: "all", pcod_safe: "all" });
+
+  // ✅ these must exist INSIDE AdminExercises
+  const [showAddDialog, setShowAddDialog] = useState(false);
+  const [newExercise, setNewExercise] = useState({
+    name: "",
+    description: "",
+    instructions: "",
+    category: "strength",
+    pcod_safe: false,
+    min_age: 5,
+    max_age: 60,
+  });
+  const [contraText, setContraText] = useState("");
+  
+  const [showEditDialog, setShowEditDialog] = useState(false);
+  const [editingExercise, setEditingExercise] = useState(null);
+
+  const [showDeleteDialog, setShowDeleteDialog] = useState(false);
+  const [deletingExercise, setDeletingExercise] = useState(null);
+
+const openEdit = (exercise) => {
+  setEditingExercise({
+    ...exercise,
+    // if backend stores instructions as list, keep a textarea string for UI
+    instructionsText: Array.isArray(exercise.instructions)
+      ? exercise.instructions.join("\n")
+      : (exercise.instructions || ""),
+    contraindicationsText: Array.isArray(exercise.contraindications)
+      ? exercise.contraindications.join(", ")
+      : "",
+  });
+  setShowEditDialog(true);
+};
+
+const saveEdit = async () => {
+  if (!editingExercise?.name?.trim()) {
+    toast.error("Exercise name is required");
+    return;
+  }
+
+  const instructionsList = (editingExercise.instructionsText || "")
+    .split("\n")
+    .map((s) => s.trim())
+    .filter(Boolean);
+
+  const contraindicationsArr = (editingExercise.contraindicationsText || "")
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+
+  const payload = {
+    name: editingExercise.name,
+    description: editingExercise.description,
+    category: editingExercise.category,
+    pcod_safe: editingExercise.pcod_safe,
+    min_age: editingExercise.min_age,
+    max_age: editingExercise.max_age,
+    instructions: instructionsList.length ? instructionsList : ["None"],
+    contraindications: contraindicationsArr.length ? contraindicationsArr : ["None"],
+  };
+
+  try {
+    await exerciseAPI.update(editingExercise.exercise_id, payload);
+    toast.success("Exercise updated");
+    setShowEditDialog(false);
+    setEditingExercise(null);
+    fetchExercises();
+  } catch (err) {
+    toast.error(err.response?.data?.detail?.[0]?.msg || "Failed to update exercise");
+  }
+};
+
+const openDelete = (exercise) => {
+  setDeletingExercise(exercise);
+  setShowDeleteDialog(true);
+};
+
+const confirmDelete = async () => {
+  try {
+    await exerciseAPI.remove(deletingExercise.exercise_id);
+    toast.success("Exercise deleted");
+    setShowDeleteDialog(false);
+    setDeletingExercise(null);
+    fetchExercises();
+  } catch (err) {
+    toast.error(err.response?.data?.detail?.[0]?.msg || "Failed to delete exercise");
+  }
+};
+  const fetchExercises = async () => {
+    try {
+      const params = {};
+      if (search) params.search = search;
+      if (filters.category !== "all") params.category = filters.category;
+      if (filters.pcod_safe !== "all") params.pcod_safe = filters.pcod_safe === "true";
+
+      const response = await api.get("/exercises", { params });
+      setExercises(response.data);
+    } catch (error) {
+      toast.error("Failed to fetch exercises");
+    } finally {
+      setLoading(false);
+    }
+  };
 
   useEffect(() => {
     fetchExercises();
   }, [filters]);
 
-  const fetchExercises = async () => {
+  // ✅ MUST be async
+  const handleCreateExercise = async () => {
+    if (!newExercise.name.trim()) return toast.error("Exercise name is required");
+    if (!newExercise.instructions.trim()) return toast.error('Instructions is required (use "None")');
+
+    const contraindicationsArr = contraText
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean);
+
+    const payload = {
+      ...newExercise,
+      instructions: [newExercise.instructions],
+      contraindications: contraindicationsArr.length ? contraindicationsArr : ["None"],
+    };
+
     try {
-      const params = { search };
-      if (filters.category) params.category = filters.category;
-      if (filters.pcod_safe) params.pcod_safe = filters.pcod_safe === 'true';
-      
-      const response = await api.get('/exercises', { params });
-      setExercises(response.data);
+      await exerciseAPI.create(payload);
+      toast.success("Exercise added");
+      setShowAddDialog(false);
+      setNewExercise({
+        name: "",
+        description: "",
+        instructions: "",
+        category: "strength",
+        pcod_safe: false,
+        min_age: 5,
+        max_age: 60,
+      });
+      setContraText("");
+      fetchExercises();
     } catch (error) {
-      toast.error('Failed to fetch exercises');
-    } finally {
-      setLoading(false);
+      console.log("Create exercise failed:", error.response?.status, error.response?.data);
+      toast.error(error.response?.data?.detail?.[0]?.msg || "Failed to add exercise");
     }
   };
+
 
   return (
     <div className="space-y-6" data-testid="admin-exercises">
@@ -1142,10 +1310,192 @@ const AdminExercises = () => {
           <h2 className="font-heading font-bold text-xl">Exercise Library</h2>
           <p className="text-slate-500 text-sm">Manage exercise database</p>
         </div>
-        <Button className="bg-[#2A9D8F] hover:bg-[#21867a]">
-          <Plus className="w-4 h-4 mr-2" />
-          Add Exercise
-        </Button>
+      <Dialog open={showAddDialog} onOpenChange={setShowAddDialog}>
+  <DialogTrigger asChild>
+    <Button className="bg-[#2A9D8F] hover:bg-[#21867a]">
+      <Plus className="w-4 h-4 mr-2" />
+      Add Exercise
+    </Button>
+  </DialogTrigger>
+
+  <DialogContent>
+    <DialogHeader>
+      <DialogTitle>Add Exercise</DialogTitle>
+      <DialogDescription>Create a new exercise in the library</DialogDescription>
+    </DialogHeader>
+    <Dialog open={showEditDialog} onOpenChange={setShowEditDialog}>
+  <DialogContent>
+    <DialogHeader>
+      <DialogTitle>Edit Exercise</DialogTitle>
+      <DialogDescription>Update exercise details</DialogDescription>
+    </DialogHeader>
+
+    {editingExercise && (
+      <div className="space-y-4 py-2">
+        <div className="space-y-2">
+          <Label>Name *</Label>
+          <Input
+            value={editingExercise.name}
+            onChange={(e) => setEditingExercise({ ...editingExercise, name: e.target.value })}
+          />
+        </div>
+
+        <div className="space-y-2">
+          <Label>Description</Label>
+          <Textarea
+            value={editingExercise.description || ""}
+            onChange={(e) => setEditingExercise({ ...editingExercise, description: e.target.value })}
+          />
+        </div>
+
+        <div className="space-y-2">
+          <Label>Instructions (one step per line)</Label>
+          <Textarea
+            value={editingExercise.instructionsText || ""}
+            onChange={(e) => setEditingExercise({ ...editingExercise, instructionsText: e.target.value })}
+          />
+        </div>
+
+        <div className="space-y-2">
+          <Label>Contraindications (comma separated)</Label>
+          <Input
+            value={editingExercise.contraindicationsText || ""}
+            onChange={(e) =>
+              setEditingExercise({ ...editingExercise, contraindicationsText: e.target.value })
+            }
+          />
+        </div>
+      </div>
+    )}
+
+    <DialogFooter>
+      <Button variant="outline" onClick={() => setShowEditDialog(false)}>Cancel</Button>
+      <Button className="bg-[#2A9D8F]" onClick={saveEdit}>Save</Button>
+    </DialogFooter>
+  </DialogContent>
+</Dialog>
+
+<Dialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>
+  <DialogContent>
+    <DialogHeader>
+      <DialogTitle>Delete Exercise</DialogTitle>
+      <DialogDescription>
+        Are you sure you want to delete{" "}
+        <span className="font-medium">{deletingExercise?.name}</span>?
+      </DialogDescription>
+    </DialogHeader>
+
+    <DialogFooter>
+      <Button variant="outline" onClick={() => setShowDeleteDialog(false)}>Cancel</Button>
+      <Button className="bg-red-600 hover:bg-red-700" onClick={confirmDelete}>
+        Delete
+      </Button>
+    </DialogFooter>
+  </DialogContent>
+</Dialog>
+
+
+    <div className="space-y-4 py-2">
+      <div className="space-y-2">
+        <Label>Name *</Label>
+        <Input
+          value={newExercise.name}
+          onChange={(e) => setNewExercise({ ...newExercise, name: e.target.value })}
+          placeholder="e.g., Shoulder Abduction"
+        />
+      </div>
+
+      <div className="space-y-2">
+        <Label>Description</Label>
+        <Textarea
+          value={newExercise.description}
+          onChange={(e) => setNewExercise({ ...newExercise, description: e.target.value })}
+          placeholder="Short instructions / purpose"
+        />
+      </div>
+      <div className="space-y-2">
+  <Label>Instructions *</Label>
+  <Textarea
+    value={newExercise.instructions}
+    onChange={(e) => setNewExercise({ ...newExercise, instructions: e.target.value })}
+    placeholder='Step-by-step instructions (use "None" if not needed)'
+  />
+</div>
+
+      <div className="space-y-2">
+        <Label>Category</Label>
+        <Select
+          value={newExercise.category}
+          onValueChange={(v) => setNewExercise({ ...newExercise, category: v })}
+        >
+          <SelectTrigger>
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="strength">Strength</SelectItem>
+            <SelectItem value="flexibility">Flexibility</SelectItem>
+            <SelectItem value="balance">Balance</SelectItem>
+            <SelectItem value="cardio">Cardio</SelectItem>
+            <SelectItem value="breathing">Breathing</SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
+
+      <div className="flex items-center justify-between">
+        <div>
+          <Label>PCOD Safe</Label>
+          <p className="text-sm text-slate-500">Mark if suitable for PCOD program</p>
+        </div>
+        <Switch
+          checked={newExercise.pcod_safe}
+          onCheckedChange={(v) => setNewExercise({ ...newExercise, pcod_safe: v })}
+        />
+      </div>
+
+      <div className="grid grid-cols-2 gap-4">
+        <div className="space-y-2">
+          <Label>Min Age</Label>
+          <Input
+            type="number"
+            value={newExercise.min_age}
+            onChange={(e) =>
+              setNewExercise({ ...newExercise, min_age: Number(e.target.value) })
+            }
+          />
+        </div>
+        <div className="space-y-2">
+          <Label>Max Age</Label>
+          <Input
+            type="number"
+            value={newExercise.max_age}
+            onChange={(e) =>
+              setNewExercise({ ...newExercise, max_age: Number(e.target.value) })
+            }
+          />
+        </div>
+      </div>
+
+      <div className="space-y-2">
+        <Label>Contraindications (comma separated)</Label>
+        <Input
+          value={contraText}
+          onChange={(e) => setContraText(e.target.value)}
+          placeholder="e.g., pregnancy, hypertension, knee pain"
+        />
+      </div>
+    </div>
+
+    <DialogFooter>
+      <Button variant="outline" onClick={() => setShowAddDialog(false)}>
+        Cancel
+      </Button>
+      <Button onClick={handleCreateExercise} className="bg-[#2A9D8F]">
+        Save
+      </Button>
+    </DialogFooter>
+  </DialogContent>
+</Dialog>
+
       </div>
 
       {/* Filters */}
@@ -1158,29 +1508,30 @@ const AdminExercises = () => {
               onChange={(e) => setSearch(e.target.value)}
               className="w-64"
             />
-            <Select value={filters.category} onValueChange={(v) => setFilters({...filters, category: v})}>
-              <SelectTrigger className="w-40">
-                <SelectValue placeholder="Category" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="">All Categories</SelectItem>
-                <SelectItem value="strength">Strength</SelectItem>
-                <SelectItem value="flexibility">Flexibility</SelectItem>
-                <SelectItem value="balance">Balance</SelectItem>
-                <SelectItem value="cardio">Cardio</SelectItem>
-                <SelectItem value="breathing">Breathing</SelectItem>
-              </SelectContent>
-            </Select>
-            <Select value={filters.pcod_safe} onValueChange={(v) => setFilters({...filters, pcod_safe: v})}>
-              <SelectTrigger className="w-40">
-                <SelectValue placeholder="PCOD Safe" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="">All</SelectItem>
-                <SelectItem value="true">PCOD Safe Only</SelectItem>
-                <SelectItem value="false">Not PCOD Safe</SelectItem>
-              </SelectContent>
-            </Select>
+          <Select value={filters.category} onValueChange={(v) => setFilters({ ...filters, category: v })}>
+          <SelectTrigger className="w-40">
+            <SelectValue placeholder="Category" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All Categories</SelectItem>
+            <SelectItem value="strength">Strength</SelectItem>
+            <SelectItem value="flexibility">Flexibility</SelectItem>
+            <SelectItem value="balance">Balance</SelectItem>
+            <SelectItem value="cardio">Cardio</SelectItem>
+            <SelectItem value="breathing">Breathing</SelectItem>
+          </SelectContent>
+        </Select>
+
+        <Select value={filters.pcod_safe} onValueChange={(v) => setFilters({ ...filters, pcod_safe: v })}>
+          <SelectTrigger className="w-40">
+            <SelectValue placeholder="PCOD Safe" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All</SelectItem>
+            <SelectItem value="true">PCOD Safe Only</SelectItem>
+            <SelectItem value="false">Not PCOD Safe</SelectItem>
+          </SelectContent>
+        </Select>
             <Button variant="outline" onClick={fetchExercises}>
               <Search className="w-4 h-4 mr-2" />
               Search

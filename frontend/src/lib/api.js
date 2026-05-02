@@ -20,6 +20,8 @@ api.interceptors.request.use((config) => {
   return config;
 });
 
+
+
 // Handle auth errors
 api.interceptors.response.use(
   (response) => response,
@@ -91,10 +93,15 @@ export const staffAPI = {
 };
 
 // Exercise APIs
+// src/lib/api.js (or wherever exerciseAPI is)
 export const exerciseAPI = {
-  getAll: (params) => api.get('/exercises', { params }),
-  create: (data) => api.post('/exercises', data),
+  list: () => api.get("/exercises"),
+  create: (payload) => api.post("/exercises", payload),
+
+  update: (exercise_id, payload) => api.put(`/exercises/${exercise_id}`, payload),
+  remove: (exercise_id) => api.delete(`/exercises/${exercise_id}`),
 };
+
 
 // Diet Plan APIs
 export const dietPlanAPI = {

@@ -12,6 +12,8 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/ui/table';
 import { Switch } from '../components/ui/switch';
 import { toast } from 'sonner';
+
+
 import api, { appointmentAPI, workoutPlanAPI, exerciseAPI, progressAPI } from '../lib/api';
 import { 
   LayoutDashboard, Users, Calendar, Dumbbell, Activity, 
@@ -19,12 +21,68 @@ import {
   Bell, ChevronRight, TrendingUp, CheckCircle, Heart
 } from 'lucide-react';
 
+import { notificationsAPI } from "../lib/notificationsApi";
+
+
 const TrainerDashboard = () => {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [stats, setStats] = useState({});
+  const [showNotifications, setShowNotifications] = useState(false);
+  const [notifications, setNotifications] = useState([]);
+ const [notifLoading, setNotifLoading] = useState(false);
+  const fetchNotifications = async () => {
+    try {
+      setNotifLoading(true);
+      const res = await api.get("/notifications"); // your endpoint
+      setNotifications(Array.isArray(res.data) ? res.data : []);
+    } catch (e) {
+      console.error(e);
+      setNotifications([]);
+    } finally {
+      setNotifLoading(false);
+    }
+  };
+
+  const unreadCount = notifications.filter((n) => !n.read).length;
+
+
+
+  useEffect(() => {
+  if (user) fetchNotifications();
+}, [user]);
+
+
+const READ_KEY = `trainer_notif_read_${user?.id || user?.user_id || "me"}`;
+
+const getLocalReadSet = () => {
+  try {
+    const raw = localStorage.getItem(READ_KEY);
+    return new Set(raw ? JSON.parse(raw) : []);
+  } catch {
+    return new Set();
+  }
+};
+
+const saveLocalReadSet = (set) => {
+  localStorage.setItem(READ_KEY, JSON.stringify([...set]));
+};
+
+useEffect(() => {
+  if (!user) return;
+  const readSet = getLocalReadSet();
+  setNotifications((prev) =>
+    prev.map((n) => ({
+      ...n,
+      read: n.read || readSet.has(n.id),
+    }))
+  );
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+}, [user]);
+
+
 
   useEffect(() => {
     if (!user || (user.role !== 'trainer' && user.role !== 'admin')) {
@@ -145,10 +203,88 @@ const TrainerDashboard = () => {
             </div>
 
             <div className="flex items-center gap-4">
-              <button className="relative p-2 rounded-lg hover:bg-slate-100">
-                <Bell className="w-5 h-5 text-slate-600" />
-                <span className="absolute top-1 right-1 w-2 h-2 bg-red-500 rounded-full"></span>
-              </button>
+           <button
+            type="button"
+            className="relative p-2 rounded-lg hover:bg-slate-100"
+            onClick={() => setShowNotifications((v) => !v)}
+          >
+            <Bell className="w-5 h-5 text-slate-600" />
+            {unreadCount > 0 && (
+              <span className="absolute top-1 right-1 w-2 h-2 bg-red-500 rounded-full" />
+            )}
+          </button>
+
+
+{showNotifications && (
+  <div className="absolute right-4 top-16 w-80 bg-white border rounded-2xl shadow-lg z-50 overflow-hidden">
+    <div className="flex items-center justify-between px-4 py-3 border-b">
+      <div className="font-medium">Notifications</div>
+      <div className="flex gap-2">
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={async () => {
+            // mark all read locally + backend
+            const readSet = getLocalReadSet();
+            notifications.forEach((n) => readSet.add(n.id));
+            saveLocalReadSet(readSet);
+            setNotifications((prev) => prev.map((n) => ({ ...n, read: true })));
+
+            try { await notificationsAPI.markAllRead(); } catch (e) {}
+          }}
+        >
+          Mark all read
+        </Button>
+        <Button variant="ghost" size="sm" onClick={() => setShowNotifications(false)}>
+          Close
+        </Button>
+      </div>
+    </div>
+
+    <div className="max-h-96 overflow-auto">
+      {notifLoading ? (
+        <div className="p-4 text-sm text-slate-500">Loading...</div>
+      ) : notifications.length === 0 ? (
+        <div className="p-4 text-sm text-slate-500">No notifications</div>
+      ) : (
+        notifications.map((n) => (
+          <button
+            key={n.id}
+            type="button"
+            className={`w-full text-left px-4 py-3 border-b hover:bg-slate-50 ${
+              n.read ? "opacity-70" : ""
+            }`}
+            onClick={async () => {
+              // mark one read locally + backend
+              const readSet = getLocalReadSet();
+              readSet.add(n.id);
+              saveLocalReadSet(readSet);
+
+              setNotifications((prev) =>
+                prev.map((x) => (x.id === n.id ? { ...x, read: true } : x))
+              );
+
+              try { await notificationsAPI.markRead(n.id); } catch (e) {}
+            }}
+          >
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <div className="font-medium text-sm text-slate-900">{n.title || "Notification"}</div>
+                <div className="text-xs text-slate-600 mt-1">{n.message || ""}</div>
+                <div className="text-[11px] text-slate-400 mt-1">
+                  {n.created_at ? String(n.created_at).replace("T", " ").slice(0, 16) : ""}
+                </div>
+              </div>
+              {!n.read && <span className="mt-1 w-2 h-2 rounded-full bg-red-500" />}
+            </div>
+          </button>
+        ))
+      )}
+    </div>
+  </div>
+)}
+
+
               <div className="flex items-center gap-3">
                 <div className="w-10 h-10 rounded-full bg-orange-700 flex items-center justify-center">
                   <span className="text-white font-bold">{user?.name?.charAt(0) || 'T'}</span>
@@ -173,6 +309,8 @@ const TrainerDashboard = () => {
             <Route path="/exercises" element={<TrainerExercises />} />
             <Route path="/progress" element={<TrainerProgress />} />
             <Route path="/pcod" element={<TrainerPCOD />} />
+
+
           </Routes>
         </main>
       </div>
@@ -240,8 +378,24 @@ const TrainerOverview = ({ stats }) => {
   );
 };
 
+const fetchNotifications = async () => {
+  try {
+    setNotifLoading(true);
+    const res = await notificationsAPI.list();
+    const data = Array.isArray(res.data) ? res.data : (res.data?.items || []);
+    setNotifications(data);
+  } catch (e) {
+    console.error(e);
+  } finally {
+    setNotifLoading(false);
+  }
+  
+};
+
 // ============ TRAINER MEMBERS ============
 const TrainerMembers = () => {
+  const navigate = useNavigate();
+
   const [members, setMembers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
@@ -249,6 +403,8 @@ const TrainerMembers = () => {
   useEffect(() => {
     fetchMembers();
   }, []);
+
+
 
   const fetchMembers = async () => {
     try {
@@ -327,12 +483,24 @@ const TrainerMembers = () => {
                     </TableCell>
                     <TableCell>
                       <div className="flex gap-2">
-                        <Button variant="ghost" size="sm">
-                          <Eye className="w-4 h-4" />
-                        </Button>
-                        <Button variant="ghost" size="sm">
-                          <Dumbbell className="w-4 h-4" />
-                        </Button>
+                        <Button
+  variant="ghost"
+  size="sm"
+  onClick={() => navigate(`/trainer/members/${member.user_id}`)}
+  type="button"
+>
+
+</Button>
+
+<Button
+  variant="ghost"
+  size="sm"
+  onClick={() => navigate(`/trainer/workout-plans?client_id=${member.user_id}`)}
+  type="button"
+>
+  <Dumbbell className="w-4 h-4" />
+</Button>
+
                       </div>
                     </TableCell>
                   </TableRow>
@@ -697,9 +865,14 @@ const TrainerWorkoutPlans = () => {
                     <SelectValue placeholder="Select member" />
                   </SelectTrigger>
                   <SelectContent>
-                    {members.map((m) => (
-                      <SelectItem key={m.user_id} value={m.user_id}>{m.name}</SelectItem>
-                    ))}
+                  {members
+                    .filter((m) => typeof m.user_id === 'string' && m.user_id.trim() !== '')
+                    .map((m) => (
+                      <SelectItem key={m.user_id} value={m.user_id}>
+                        {m.name || m.email || m.user_id}
+                      </SelectItem>
+                  ))}
+
                   </SelectContent>
                 </Select>
               </div>
@@ -789,7 +962,7 @@ const TrainerWorkoutPlans = () => {
 const TrainerExercises = () => {
   const [exercises, setExercises] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [category, setCategory] = useState('');
+  const [category, setCategory] = useState('all');
   const [showAddDialog, setShowAddDialog] = useState(false);
   const [newExercise, setNewExercise] = useState({
     name: '', description: '', category: 'strengthening', instructions: [], contraindications: ['None'], pcod_safe: true
@@ -801,7 +974,9 @@ const TrainerExercises = () => {
 
   const fetchExercises = async () => {
     try {
-      const response = await exerciseAPI.getAll({ category: category || undefined });
+      const response = await exerciseAPI.getAll({
+  category: category === 'all' ? undefined : category,
+});
       setExercises(response.data);
     } catch (error) {
       toast.error('Failed to fetch exercises');
@@ -842,7 +1017,7 @@ const TrainerExercises = () => {
               <SelectValue placeholder="All categories" />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="">All</SelectItem>
+              <SelectItem value="all">All</SelectItem>
               <SelectItem value="strengthening">Strengthening</SelectItem>
               <SelectItem value="cardio">Cardio</SelectItem>
               <SelectItem value="flexibility">Flexibility</SelectItem>
@@ -979,14 +1154,31 @@ const TrainerProgress = () => {
     }
   };
 
-  const fetchProgress = async () => {
-    try {
-      const response = await progressAPI.getByClient(selectedMember);
-      setProgress(response.data);
-    } catch (error) {
-      console.error('Error:', error);
-    }
-  };
+ const fetchProgress = async () => {
+  try {
+    const response = await progressAPI.getByClient(selectedMember);
+    const data = response?.data;
+
+    // Normalize to array no matter what backend returns
+    const rows = Array.isArray(data)
+      ? data
+      : Array.isArray(data?.items)
+        ? data.items
+        : Array.isArray(data?.data)
+          ? data.data
+          : Array.isArray(data?.progress)
+            ? data.progress
+            : data
+              ? [data]
+              : [];
+
+    setProgress(rows);
+  } catch (error) {
+    console.error('Error:', error);
+    setProgress([]); // prevent crashes
+  }
+};
+
 
   const handleRecordProgress = async () => {
     if (!selectedMember) return;
@@ -1089,7 +1281,7 @@ const TrainerProgress = () => {
                   <TableCell colSpan={4} className="text-center py-8 text-slate-500">No progress records</TableCell>
                 </TableRow>
               ) : (
-                progress.map((p) => (
+                (Array.isArray(progress) ? progress : []).map((p) =>  (
                   <TableRow key={p.metric_id}>
                     <TableCell>{p.recorded_at?.split('T')[0]}</TableCell>
                     <TableCell className="capitalize">{p.metric_type?.replace('_', ' ')}</TableCell>
