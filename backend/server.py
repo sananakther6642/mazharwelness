@@ -9,6 +9,7 @@ import logging
 from pathlib import Path
 from typing import List, Optional, Dict, Any
 from datetime import datetime, timezone, timedelta
+from urllib.parse import quote_plus
 import httpx
 import random
 import string
@@ -49,9 +50,34 @@ from .auth import (
     get_assigned_clients
 )
 
-# MongoDB connection - Support Railway's DATABASE_URL or local MONGO_URL
-mongo_url = os.environ.get('DATABASE_URL') or os.environ.get('MONGO_URL', 'mongodb://localhost:27017/')
-db_name = os.environ.get('DB_NAME', 'mazhar_wellness')
+def resolve_mongo_url() -> str:
+    """Resolve MongoDB URL from common Railway/standard environment variables."""
+    direct_keys = ["DATABASE_URL", "MONGO_URL", "MONGODB_URL", "MONGO_URI"]
+    for key in direct_keys:
+        value = os.environ.get(key)
+        if value:
+            return value
+
+    host = os.environ.get("MONGOHOST")
+    port = os.environ.get("MONGOPORT", "27017")
+    user = os.environ.get("MONGOUSER")
+    password = os.environ.get("MONGOPASSWORD")
+    database = os.environ.get("MONGODATABASE") or os.environ.get("DB_NAME") or "mazhar_wellness"
+
+    if host:
+        if user and password:
+            return (
+                f"mongodb://{quote_plus(user)}:{quote_plus(password)}@{host}:{port}/{database}"
+                "?authSource=admin"
+            )
+        return f"mongodb://{host}:{port}/{database}"
+
+    return "mongodb://localhost:27017/"
+
+
+# MongoDB connection - resolve Railway vars first, fallback to localhost for local dev
+mongo_url = resolve_mongo_url()
+db_name = os.environ.get('DB_NAME') or os.environ.get('MONGODATABASE') or 'mazhar_wellness'
 client = AsyncIOMotorClient(mongo_url, serverSelectionTimeoutMS=5000)
 db = client[db_name]
 
