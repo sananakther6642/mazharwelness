@@ -17,7 +17,7 @@ ROOT_DIR = Path(__file__).parent.parent  # Project root
 load_dotenv(ROOT_DIR / 'backend' / '.env')
 load_dotenv(ROOT_DIR / '.env')
 
-from models import (
+from .models import (
     User, UserCreate, UserLogin, UserRole, OTPRequest, OTPVerify,
     ClientProfile, ClientType, ParentProfileCreate, WomanProfileCreate,
     StaffProfile, StaffProfileCreate,
@@ -40,7 +40,7 @@ from models import (
     Testimonial, FAQ, GalleryImage,
     AuditLog, AuditAction, SystemSettings
 )
-from auth import (
+ from .auth import (
     hash_password, verify_password, create_jwt_token, decode_jwt_token,
     get_current_user, get_optional_user, require_roles, require_any_staff,
     Permissions, create_audit_log, soft_delete, exclude_deleted,
