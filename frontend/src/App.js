@@ -1,7 +1,7 @@
-import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
+import { HashRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { Toaster } from './components/ui/sonner';
-import { getBasePath, withBasePath } from './lib/basePath';
+// Removed basePath helpers - using HashRouter for GitHub Pages compatibility
 
 // Pages
 import HomePage from './pages/HomePage';
@@ -179,7 +179,7 @@ const NotFound = () => {
         <p className="text-slate-600 mb-8">
           The page you're looking for doesn't exist or has been moved.
         </p>
-        <a href={withBasePath("/")}>
+        <a href="/#/">
           <button className="h-12 px-8 rounded-full bg-[#2A9D8F] hover:bg-[#21867a] text-white font-bold transition-colors">
             Back to Home
           </button>
@@ -195,7 +195,7 @@ const RoleNotAssigned = () => {
   
   const handleLogout = async () => {
     await logout();
-    window.location.href = withBasePath('/login');
+    window.location.href = '/#/login';
   };
   
   return (
@@ -218,7 +218,7 @@ const RoleNotAssigned = () => {
           </p>
         </div>
         <div className="space-y-3">
-          <a href={withBasePath("/")}>
+          <a href="/#/">
             <button className="w-full h-12 rounded-full bg-[#2A9D8F] hover:bg-[#21867a] text-white font-bold transition-colors">
               Back to Home
             </button>
@@ -237,12 +237,12 @@ const RoleNotAssigned = () => {
 
 function App() {
   return (
-    <BrowserRouter basename={getBasePath() || undefined}>
+    <HashRouter>
       <AuthProvider>
         <AppRouter />
         <Toaster position="top-center" richColors />
       </AuthProvider>
-    </BrowserRouter>
+    </HashRouter>
   );
 }
 

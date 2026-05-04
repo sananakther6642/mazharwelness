@@ -1,5 +1,4 @@
 import axios from 'axios';
-import { withBasePath } from './basePath';
 
 const API_URL = process.env.REACT_APP_BACKEND_URL;
 
@@ -31,9 +30,9 @@ api.interceptors.response.use(
       localStorage.removeItem('token');
       localStorage.removeItem('user');
       // Only redirect if not already on login/register page
-      if (!window.location.pathname.includes('/login') && 
-          !window.location.pathname.includes('/register')) {
-        window.location.href = withBasePath('/login');
+      if (!window.location.hash.includes('/login') && 
+          !window.location.hash.includes('/register')) {
+        window.location.href = '/#/login';
       }
     }
     return Promise.reject(error);
