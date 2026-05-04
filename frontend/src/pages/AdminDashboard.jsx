@@ -449,6 +449,10 @@ const AdminStaff = () => {
     nutritionist: 'bg-purple-100 text-purple-700',
   };
 
+  const handleStaffAction = (action, member) => {
+    toast.info(`${action} for ${member.name} is not implemented yet`);
+  };
+
   return (
     <div className="space-y-6" data-testid="admin-staff">
       <div className="flex items-center justify-between">
@@ -567,28 +571,24 @@ const AdminStaff = () => {
                     </TableCell>
                     <TableCell>
                       <div className="flex gap-2">
-                      <Button
-  variant="ghost"
-  size="sm"
-  type="button"
-  onClick={(e) => { e.stopPropagation(); openEdit(exercise); }}
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          type="button"
+                          onClick={() => handleStaffAction('Edit', member)}
+                        >
+                          <Edit className="w-4 h-4" />
+                        </Button>
 
->
-  <Edit className="w-4 h-4" />
-</Button>
-
-<Button
-  variant="ghost"
-  size="sm"
-  type="button"
-  className="text-red-500"
-  onClick={(e) => { e.stopPropagation(); openDelete(exercise); }}
-
->
-  <Trash2 className="w-4 h-4" />
-</Button>
-
-
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          type="button"
+                          className="text-red-500"
+                          onClick={() => handleStaffAction('Deactivate', member)}
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </Button>
                       </div>
                     </TableCell>
                   </TableRow>
@@ -1099,6 +1099,10 @@ const AdminBilling = () => {
     }
   };
 
+  const handleInvoiceAction = (action, invoice) => {
+    toast.info(`${action} for invoice ${invoice.invoice_number} is not implemented yet`);
+  };
+
   return (
     <div className="space-y-6" data-testid="admin-billing">
       <div className="flex items-center justify-between">
@@ -1144,10 +1148,10 @@ const AdminBilling = () => {
                     <TableCell>{inv.created_at?.split('T')[0]}</TableCell>
                     <TableCell>
                       <div className="flex gap-2">
-                        <Button variant="ghost" size="sm">
+                        <Button variant="ghost" size="sm" onClick={() => handleInvoiceAction('View', inv)}>
                           <Eye className="w-4 h-4" />
                         </Button>
-                        <Button variant="ghost" size="sm">
+                        <Button variant="ghost" size="sm" onClick={() => handleInvoiceAction('Download', inv)}>
                           <Download className="w-4 h-4" />
                         </Button>
                       </div>
