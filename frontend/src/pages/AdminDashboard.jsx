@@ -449,8 +449,29 @@ const AdminStaff = () => {
     nutritionist: 'bg-purple-100 text-purple-700',
   };
 
-  const handleStaffAction = (action, member) => {
-    toast.info(`${action} for ${member.name} is not implemented yet`);
+  const handleStaffAction = async (action, member) => {
+    try {
+      if (action === 'Edit') {
+        const name = window.prompt('Staff name', member.name || '');
+        if (name === null) return;
+        const phone = window.prompt('Phone number', member.phone || '');
+        if (phone === null) return;
+        await staffAPI.update(member.user_id, { name, phone });
+        toast.success('Staff member updated');
+        fetchStaff();
+        return;
+      }
+
+      if (action === 'Deactivate') {
+        const ok = window.confirm(`Deactivate/Delete ${member.name}?`);
+        if (!ok) return;
+        await staffAPI.remove(member.user_id);
+        toast.success('Staff member removed');
+        fetchStaff();
+      }
+    } catch (error) {
+      toast.error(error.response?.data?.detail || `Failed to ${action.toLowerCase()} staff`);
+    }
   };
 
   return (
@@ -642,8 +663,41 @@ const AdminServices = () => {
     }
   };
 
-  const handleServiceAction = (action, service) => {
-    toast.info(`${action} for ${service.name} is not implemented yet`);
+  const handleServiceAction = async (action, service) => {
+    try {
+      if (action === 'Edit') {
+        const name = window.prompt('Service name', service.name || '');
+        if (name === null) return;
+        const description = window.prompt('Description', service.description || '');
+        if (description === null) return;
+        const durationInput = window.prompt('Duration (minutes)', String(service.duration_minutes || 60));
+        if (durationInput === null) return;
+        const priceInput = window.prompt('Price', String(service.price || 0));
+        if (priceInput === null) return;
+
+        await serviceAPI.update(service.service_id, {
+          name,
+          description,
+          category: service.category,
+          duration_minutes: Number(durationInput) || 60,
+          price: Number(priceInput) || 0,
+          is_active: service.is_active ?? true,
+        });
+        toast.success('Service updated');
+        fetchServices();
+        return;
+      }
+
+      if (action === 'Delete') {
+        const ok = window.confirm(`Delete service ${service.name}?`);
+        if (!ok) return;
+        await serviceAPI.remove(service.service_id);
+        toast.success('Service deleted');
+        fetchServices();
+      }
+    } catch (error) {
+      toast.error(error.response?.data?.detail || `Failed to ${action.toLowerCase()} service`);
+    }
   };
 
   const categoryLabels = {
@@ -1011,8 +1065,26 @@ const AdminAppointments = () => {
     no_show: 'bg-slate-100 text-slate-700',
   };
 
-  const handleAppointmentAction = (action, appointment) => {
-    toast.info(`${action} for ${appointment.client_name} is not implemented yet`);
+  const handleAppointmentAction = async (action, appointment) => {
+    try {
+      if (action === 'View') {
+        toast.info(`${appointment.client_name} | ${appointment.service_name} | ${appointment.scheduled_date} ${appointment.scheduled_time}`);
+        return;
+      }
+
+      if (action === 'Edit') {
+        const status = window.prompt(
+          'Set status: pending, confirmed, completed, cancelled, no_show',
+          appointment.status || 'pending'
+        );
+        if (!status) return;
+        await appointmentAPI.updateStatus(appointment.appointment_id, status);
+        toast.success('Appointment status updated');
+        fetchAppointments();
+      }
+    } catch (error) {
+      toast.error(error.response?.data?.detail || `Failed to ${action.toLowerCase()} appointment`);
+    }
   };
 
   return (
@@ -1099,8 +1171,29 @@ const AdminBilling = () => {
     }
   };
 
-  const handleInvoiceAction = (action, invoice) => {
-    toast.info(`${action} for invoice ${invoice.invoice_number} is not implemented yet`);
+  const handleInvoiceAction = async (action, invoice) => {
+    try {
+      if (action === 'View') {
+        const response = await invoiceAPI.getById(invoice.invoice_id);
+        const details = response.data;
+        toast.info(`Invoice ${details.invoice_number} | Total: ${details.total_amount || details.total || 0}`);
+        return;
+      }
+
+      if (action === 'Download') {
+        const response = await invoiceAPI.getById(invoice.invoice_id);
+        const blob = new Blob([JSON.stringify(response.data, null, 2)], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `${invoice.invoice_number || invoice.invoice_id}.json`;
+        a.click();
+        URL.revokeObjectURL(url);
+        toast.success('Invoice downloaded');
+      }
+    } catch (error) {
+      toast.error(error.response?.data?.detail || `Failed to ${action.toLowerCase()} invoice`);
+    }
   };
 
   return (

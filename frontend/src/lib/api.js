@@ -72,6 +72,7 @@ export const serviceAPI = {
   getAll: (category) => api.get('/services', { params: { category } }),
   create: (data) => api.post('/services', data),
   update: (serviceId, data) => api.put(`/services/${serviceId}`, data),
+  remove: (serviceId) => api.delete(`/services/${serviceId}`),
 };
 
 // Package APIs
@@ -93,6 +94,8 @@ export const staffAPI = {
   getAll: (role) => api.get('/staff', { params: { role } }),
   getAvailable: (serviceCategory) => api.get('/staff/available', { params: { service_category: serviceCategory } }),
   create: (data) => api.post('/staff', data),
+  update: (userId, data) => api.put(`/staff/${userId}`, null, { params: data }),
+  remove: (userId) => api.delete(`/staff/${userId}`),
 };
 
 // Exercise APIs
@@ -142,6 +145,7 @@ export const progressAPI = {
 export const invoiceAPI = {
   getAll: (params) => api.get('/invoices', { params }),
   create: (data) => api.post('/invoices', data),
+  getById: (invoiceId) => api.get(`/invoices/${invoiceId}`),
 };
 
 // Website Content APIs
