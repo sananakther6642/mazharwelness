@@ -37,7 +37,7 @@ jobs:
 
       - name: Build frontend
         env:
-          REACT_APP_BACKEND_URL: https://your-railway-url-here.railway.app
+          REACT_APP_BACKEND_URL: https://mazharwelness-production.up.railway.app
         run: npm run build
 
       - name: Upload Pages artifact
