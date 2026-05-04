@@ -46,10 +46,11 @@ from auth import (
     get_assigned_clients
 )
 
-# MongoDB connection
-mongo_url = os.environ['MONGO_URL']
+# MongoDB connection - Support Railway's DATABASE_URL or local MONGO_URL
+mongo_url = os.environ.get('DATABASE_URL') or os.environ.get('MONGO_URL', 'mongodb://localhost:27017/')
+db_name = os.environ.get('DB_NAME', 'mazhar_wellness')
 client = AsyncIOMotorClient(mongo_url)
-db = client[os.environ['DB_NAME']]
+db = client[db_name]
 
 # Create the main app
 app = FastAPI(title="Mazhar Wellness & Paediatric Physio API")
