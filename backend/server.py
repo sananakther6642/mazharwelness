@@ -2772,19 +2772,18 @@ def generate_id(prefix: str = "") -> str:
 @app.on_event("startup")
 async def startup_db():
     """Initialize database with seed data"""
+    logger.info("Starting up - initializing database...")
+    
+    # Create indexes (using drop_duplicates to avoid conflicts)
     try:
-        logger.info("Starting up - initializing database...")
-        
-        # Create indexes (using drop_duplicates to avoid conflicts)
-        try:
-            await db.users.create_index("email", unique=True, background=True)
-        except Exception as e:
-            logger.debug(f"Could not create email index: {e}")
-        
-        try:
-            await db.users.create_index("user_id", unique=True, background=True)
-        except Exception as e:
-            logger.debug(f"Could not create user_id index: {e}")
+        await db.users.create_index("email", unique=True, background=True)
+    except Exception as e:
+        logger.debug(f"Could not create email index: {e}")
+    
+    try:
+        await db.users.create_index("user_id", unique=True, background=True)
+    except Exception as e:
+        logger.debug(f"Could not create user_id index: {e}")
     
     try:
         await db.users.create_index("phone", background=True)
