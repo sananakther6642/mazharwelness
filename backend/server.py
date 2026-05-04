@@ -3,6 +3,7 @@ from fastapi.responses import JSONResponse
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
+from pymongo.errors import ServerSelectionTimeoutError
 import os
 import logging
 from pathlib import Path
@@ -51,7 +52,7 @@ from .auth import (
 # MongoDB connection - Support Railway's DATABASE_URL or local MONGO_URL
 mongo_url = os.environ.get('DATABASE_URL') or os.environ.get('MONGO_URL', 'mongodb://localhost:27017/')
 db_name = os.environ.get('DB_NAME', 'mazhar_wellness')
-client = AsyncIOMotorClient(mongo_url)
+client = AsyncIOMotorClient(mongo_url, serverSelectionTimeoutMS=5000)
 db = client[db_name]
 
 # Create the main app
@@ -2773,6 +2774,15 @@ def generate_id(prefix: str = "") -> str:
 async def startup_db():
     """Initialize database with seed data"""
     logger.info("Starting up - initializing database...")
+
+    try:
+        await client.admin.command("ping")
+    except ServerSelectionTimeoutError as exc:
+        logger.warning(f"MongoDB is not reachable at startup: {exc}")
+        return
+    except Exception as exc:
+        logger.warning(f"Skipping startup database seed due to MongoDB error: {exc}")
+        return
     
     # Create indexes (using drop_duplicates to avoid conflicts)
     try:
@@ -2807,89 +2817,92 @@ async def startup_db():
         pass
     
     # Seed default services if none exist
-    services_count = await db.services.count_documents({})
-    if services_count == 0:
-        default_services = [
-            {
-                "service_id": "svc_paed_assess",
-                "name": "Paediatric Assessment",
-                "description": "Comprehensive developmental assessment for children",
-                "category": "paediatric_physio",
-                "duration_minutes": 60,
-                "price": 1500,
-                "is_active": True,
-                "created_at": datetime.now(timezone.utc).isoformat(),
-                "deleted_at": None
-            },
-            {
-                "service_id": "svc_paed_therapy",
-                "name": "Paediatric Therapy Session",
-                "description": "Individual therapy session for children",
-                "category": "paediatric_physio",
-                "duration_minutes": 45,
-                "price": 800,
-                "is_active": True,
-                "created_at": datetime.now(timezone.utc).isoformat(),
-                "deleted_at": None
-            },
-            {
-                "service_id": "svc_weight_consult",
-                "name": "Weight Management Consultation",
-                "description": "Personal consultation for weight management",
-                "category": "weight_management",
-                "duration_minutes": 45,
-                "price": 1000,
-                "is_active": True,
-                "created_at": datetime.now(timezone.utc).isoformat(),
-                "deleted_at": None
-            },
-            {
-                "service_id": "svc_pcod_program",
-                "name": "PCOD Wellness Program",
-                "description": "Specialized program for PCOD management",
-                "category": "pcod",
-                "duration_minutes": 60,
-                "price": 1200,
-                "is_active": True,
-                "created_at": datetime.now(timezone.utc).isoformat(),
-                "deleted_at": None
-            },
-            {
-                "service_id": "svc_zumba",
-                "name": "Zumba Class",
-                "description": "Fun group fitness class",
-                "category": "zumba_aerobics_yoga",
-                "duration_minutes": 60,
-                "price": 500,
-                "is_active": True,
-                "created_at": datetime.now(timezone.utc).isoformat(),
-                "deleted_at": None
-            },
-            {
-                "service_id": "svc_yoga",
-                "name": "Yoga Session",
-                "description": "Guided yoga for flexibility and wellness",
-                "category": "zumba_aerobics_yoga",
-                "duration_minutes": 60,
-                "price": 600,
-                "is_active": True,
-                "created_at": datetime.now(timezone.utc).isoformat(),
-                "deleted_at": None
-            },
-            {
-                "service_id": "svc_pain",
-                "name": "Pain Management Session",
-                "description": "Physiotherapy for pain relief",
-                "category": "pain_management",
-                "duration_minutes": 45,
-                "price": 900,
-                "is_active": True,
-                "created_at": datetime.now(timezone.utc).isoformat(),
-                "deleted_at": None
-            }
-        ]
-        await db.services.insert_many(default_services)
-        logger.info("Seeded default services")
+    try:
+        services_count = await db.services.count_documents({})
+        if services_count == 0:
+            default_services = [
+                {
+                    "service_id": "svc_paed_assess",
+                    "name": "Paediatric Assessment",
+                    "description": "Comprehensive developmental assessment for children",
+                    "category": "paediatric_physio",
+                    "duration_minutes": 60,
+                    "price": 1500,
+                    "is_active": True,
+                    "created_at": datetime.now(timezone.utc).isoformat(),
+                    "deleted_at": None,
+                },
+                {
+                    "service_id": "svc_paed_therapy",
+                    "name": "Paediatric Therapy Session",
+                    "description": "Individual therapy session for children",
+                    "category": "paediatric_physio",
+                    "duration_minutes": 45,
+                    "price": 800,
+                    "is_active": True,
+                    "created_at": datetime.now(timezone.utc).isoformat(),
+                    "deleted_at": None,
+                },
+                {
+                    "service_id": "svc_weight_consult",
+                    "name": "Weight Management Consultation",
+                    "description": "Personal consultation for weight management",
+                    "category": "weight_management",
+                    "duration_minutes": 45,
+                    "price": 1000,
+                    "is_active": True,
+                    "created_at": datetime.now(timezone.utc).isoformat(),
+                    "deleted_at": None,
+                },
+                {
+                    "service_id": "svc_pcod_program",
+                    "name": "PCOD Wellness Program",
+                    "description": "Specialized program for PCOD management",
+                    "category": "pcod",
+                    "duration_minutes": 60,
+                    "price": 1200,
+                    "is_active": True,
+                    "created_at": datetime.now(timezone.utc).isoformat(),
+                    "deleted_at": None,
+                },
+                {
+                    "service_id": "svc_zumba",
+                    "name": "Zumba Class",
+                    "description": "Fun group fitness class",
+                    "category": "zumba_aerobics_yoga",
+                    "duration_minutes": 60,
+                    "price": 500,
+                    "is_active": True,
+                    "created_at": datetime.now(timezone.utc).isoformat(),
+                    "deleted_at": None,
+                },
+                {
+                    "service_id": "svc_yoga",
+                    "name": "Yoga Session",
+                    "description": "Guided yoga for flexibility and wellness",
+                    "category": "zumba_aerobics_yoga",
+                    "duration_minutes": 60,
+                    "price": 600,
+                    "is_active": True,
+                    "created_at": datetime.now(timezone.utc).isoformat(),
+                    "deleted_at": None,
+                },
+                {
+                    "service_id": "svc_pain",
+                    "name": "Pain Management Session",
+                    "description": "Physiotherapy for pain relief",
+                    "category": "pain_management",
+                    "duration_minutes": 45,
+                    "price": 900,
+                    "is_active": True,
+                    "created_at": datetime.now(timezone.utc).isoformat(),
+                    "deleted_at": None,
+                },
+            ]
+            await db.services.insert_many(default_services)
+            logger.info("Seeded default services")
+    except Exception as exc:
+        logger.warning(f"Skipping default service seeding: {exc}")
     
     # Seed FAQs
     faqs_count = await db.faqs.count_documents({})
