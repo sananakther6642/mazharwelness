@@ -1,8 +1,9 @@
 [build]
-builder = "dockerfile"
+builder = "paketo"
 
-[build.dockerfile]
-path = "backend/Dockerfile"
+[env]
+PYTHONUNBUFFERED = "1"
 
 [deploy]
-startCommand = "cd backend && python -m uvicorn server:app --host 0.0.0.0 --port $PORT"
+restartPolicyMaxRetries = 5
+
