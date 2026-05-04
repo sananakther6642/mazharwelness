@@ -318,6 +318,10 @@ const AdminClients = () => {
     fetchClients(search);
   };
 
+  const handleClientAction = (action, client) => {
+    toast.info(`${action} for ${client.name} is not implemented yet`);
+  };
+
   return (
     <div className="space-y-6" data-testid="admin-clients">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
@@ -378,10 +382,10 @@ const AdminClients = () => {
                     </TableCell>
                     <TableCell>
                       <div className="flex gap-2">
-                        <Button variant="ghost" size="sm">
+                        <Button variant="ghost" size="sm" onClick={() => handleClientAction('View', client)}>
                           <Eye className="w-4 h-4" />
                         </Button>
-                        <Button variant="ghost" size="sm">
+                        <Button variant="ghost" size="sm" onClick={() => handleClientAction('Edit', client)}>
                           <Edit className="w-4 h-4" />
                         </Button>
                       </div>
@@ -638,6 +642,10 @@ const AdminServices = () => {
     }
   };
 
+  const handleServiceAction = (action, service) => {
+    toast.info(`${action} for ${service.name} is not implemented yet`);
+  };
+
   const categoryLabels = {
     paediatric_physio: 'Paediatric Physio',
     weight_management: 'Weight Management',
@@ -747,10 +755,10 @@ const AdminServices = () => {
                     {categoryLabels[service.category] || service.category}
                   </Badge>
                   <div className="flex gap-1">
-                    <Button variant="ghost" size="sm">
+                    <Button variant="ghost" size="sm" onClick={() => handleServiceAction('Edit', service)}>
                       <Edit className="w-4 h-4" />
                     </Button>
-                    <Button variant="ghost" size="sm" className="text-red-500">
+                    <Button variant="ghost" size="sm" className="text-red-500" onClick={() => handleServiceAction('Delete', service)}>
                       <Trash2 className="w-4 h-4" />
                     </Button>
                   </div>
@@ -1003,6 +1011,10 @@ const AdminAppointments = () => {
     no_show: 'bg-slate-100 text-slate-700',
   };
 
+  const handleAppointmentAction = (action, appointment) => {
+    toast.info(`${action} for ${appointment.client_name} is not implemented yet`);
+  };
+
   return (
     <div className="space-y-6" data-testid="admin-appointments">
       <div className="flex items-center justify-between">
@@ -1048,10 +1060,10 @@ const AdminAppointments = () => {
                     </TableCell>
                     <TableCell>
                       <div className="flex gap-2">
-                        <Button variant="ghost" size="sm">
+                        <Button variant="ghost" size="sm" onClick={() => handleAppointmentAction('View', apt)}>
                           <Eye className="w-4 h-4" />
                         </Button>
-                        <Button variant="ghost" size="sm">
+                        <Button variant="ghost" size="sm" onClick={() => handleAppointmentAction('Edit', apt)}>
                           <Edit className="w-4 h-4" />
                         </Button>
                       </div>
@@ -1579,10 +1591,25 @@ const confirmDelete = async () => {
                 <div className="flex justify-between items-center pt-4 border-t">
                   <span className="text-slate-500 text-sm">Ages {exercise.min_age}-{exercise.max_age}</span>
                   <div className="flex gap-1">
-                    <Button variant="ghost" size="sm">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        openEdit(exercise);
+                      }}
+                    >
                       <Edit className="w-4 h-4" />
                     </Button>
-                    <Button variant="ghost" size="sm" className="text-red-500">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="text-red-500"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        openDelete(exercise);
+                      }}
+                    >
                       <Trash2 className="w-4 h-4" />
                     </Button>
                   </div>
