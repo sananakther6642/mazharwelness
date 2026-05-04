@@ -71,8 +71,9 @@ const AppRouter = () => {
   const location = useLocation();
 
   // Check URL fragment for session_id (Google OAuth callback)
-  // This must be checked synchronously during render, not in useEffect
-  if (location.hash?.includes('session_id=')) {
+  // Only match if session_id is actually present and we're not on another route
+  const isOAuthCallback = location.hash?.startsWith('#?') && location.hash?.includes('session_id=');
+  if (isOAuthCallback) {
     return <AuthCallback />;
   }
 
