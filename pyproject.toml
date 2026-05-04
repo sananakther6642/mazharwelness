@@ -1,0 +1,13 @@
+[project]
+name = "mazhar-wellness"
+version = "0.1.0"
+description = "Mazhar Wellness API"
+requires-python = ">=3.11"
+dependencies = []
+
+[tool.poetry.dependencies]
+python = "^3.11"
+
+[build-system]
+requires = ["setuptools", "wheel"]
+build-backend = "setuptools.build_meta"
