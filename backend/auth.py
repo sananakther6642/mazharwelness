@@ -11,7 +11,7 @@ from typing import Optional, List, Callable
 from functools import wraps
 from fastapi import HTTPException, Request, Depends
 from fastapi.security import HTTPBearer
-from models import UserRole, AuditAction, AuditLog
+from .models import UserRole, AuditAction, AuditLog
 
 
 # JWT Configuration
