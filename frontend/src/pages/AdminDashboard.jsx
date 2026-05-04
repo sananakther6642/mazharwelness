@@ -406,6 +406,10 @@ const AdminStaff = () => {
   const [staff, setStaff] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showAddDialog, setShowAddDialog] = useState(false);
+  const [showEditDialog, setShowEditDialog] = useState(false);
+  const [showDeleteDialog, setShowDeleteDialog] = useState(false);
+  const [editingStaff, setEditingStaff] = useState(null);
+  const [deletingStaff, setDeletingStaff] = useState(null);
   const [newStaff, setNewStaff] = useState({
     name: '', email: '', phone: '', password: '', role: 'physiotherapist'
   });
@@ -449,28 +453,53 @@ const AdminStaff = () => {
     nutritionist: 'bg-purple-100 text-purple-700',
   };
 
-  const handleStaffAction = async (action, member) => {
-    try {
-      if (action === 'Edit') {
-        const name = window.prompt('Staff name', member.name || '');
-        if (name === null) return;
-        const phone = window.prompt('Phone number', member.phone || '');
-        if (phone === null) return;
-        await staffAPI.update(member.user_id, { name, phone });
-        toast.success('Staff member updated');
-        fetchStaff();
-        return;
-      }
+  const handleStaffAction = (action, member) => {
+    if (action === 'Edit') {
+      setEditingStaff({
+        user_id: member.user_id,
+        name: member.name || '',
+        phone: member.phone || '',
+      });
+      setShowEditDialog(true);
+      return;
+    }
 
-      if (action === 'Deactivate') {
-        const ok = window.confirm(`Deactivate/Delete ${member.name}?`);
-        if (!ok) return;
-        await staffAPI.remove(member.user_id);
-        toast.success('Staff member removed');
-        fetchStaff();
-      }
+    if (action === 'Deactivate') {
+      setDeletingStaff(member);
+      setShowDeleteDialog(true);
+    }
+  };
+
+  const handleSaveStaffEdit = async () => {
+    if (!editingStaff?.name?.trim()) {
+      toast.error('Name is required');
+      return;
+    }
+
+    try {
+      await staffAPI.update(editingStaff.user_id, {
+        name: editingStaff.name,
+        phone: editingStaff.phone,
+      });
+      toast.success('Staff member updated');
+      setShowEditDialog(false);
+      setEditingStaff(null);
+      fetchStaff();
     } catch (error) {
-      toast.error(error.response?.data?.detail || `Failed to ${action.toLowerCase()} staff`);
+      toast.error(error.response?.data?.detail || 'Failed to update staff');
+    }
+  };
+
+  const handleConfirmStaffDelete = async () => {
+    if (!deletingStaff) return;
+    try {
+      await staffAPI.remove(deletingStaff.user_id);
+      toast.success('Staff member removed');
+      setShowDeleteDialog(false);
+      setDeletingStaff(null);
+      fetchStaff();
+    } catch (error) {
+      toast.error(error.response?.data?.detail || 'Failed to remove staff');
     }
   };
 
@@ -619,6 +648,52 @@ const AdminStaff = () => {
           </Table>
         </CardContent>
       </Card>
+
+      <Dialog open={showEditDialog} onOpenChange={setShowEditDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Edit Staff Member</DialogTitle>
+            <DialogDescription>Update staff details</DialogDescription>
+          </DialogHeader>
+          {editingStaff && (
+            <div className="space-y-4 py-2">
+              <div className="space-y-2">
+                <Label>Name</Label>
+                <Input
+                  value={editingStaff.name}
+                  onChange={(e) => setEditingStaff({ ...editingStaff, name: e.target.value })}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Phone</Label>
+                <Input
+                  value={editingStaff.phone}
+                  onChange={(e) => setEditingStaff({ ...editingStaff, phone: e.target.value })}
+                />
+              </div>
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowEditDialog(false)}>Cancel</Button>
+            <Button className="bg-[#2A9D8F]" onClick={handleSaveStaffEdit}>Save Changes</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Remove Staff Member</DialogTitle>
+            <DialogDescription>
+              {deletingStaff ? `Are you sure you want to remove ${deletingStaff.name}?` : 'Confirm removal'}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowDeleteDialog(false)}>Cancel</Button>
+            <Button className="bg-red-600 hover:bg-red-700" onClick={handleConfirmStaffDelete}>Remove</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };
@@ -628,6 +703,10 @@ const AdminServices = () => {
   const [services, setServices] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showAddDialog, setShowAddDialog] = useState(false);
+  const [showEditDialog, setShowEditDialog] = useState(false);
+  const [showDeleteDialog, setShowDeleteDialog] = useState(false);
+  const [editingService, setEditingService] = useState(null);
+  const [deletingService, setDeletingService] = useState(null);
   const [newService, setNewService] = useState({
     name: '', description: '', category: 'paediatric_physio', duration_minutes: 60, price: 0
   });
@@ -663,40 +742,61 @@ const AdminServices = () => {
     }
   };
 
-  const handleServiceAction = async (action, service) => {
+  const handleServiceAction = (action, service) => {
+    if (action === 'Edit') {
+      setEditingService({
+        service_id: service.service_id,
+        name: service.name || '',
+        description: service.description || '',
+        category: service.category || 'paediatric_physio',
+        duration_minutes: Number(service.duration_minutes) || 60,
+        price: Number(service.price) || 0,
+        is_active: service.is_active ?? true,
+      });
+      setShowEditDialog(true);
+      return;
+    }
+
+    if (action === 'Delete') {
+      setDeletingService(service);
+      setShowDeleteDialog(true);
+    }
+  };
+
+  const handleSaveServiceEdit = async () => {
+    if (!editingService?.name?.trim()) {
+      toast.error('Service name is required');
+      return;
+    }
+
     try {
-      if (action === 'Edit') {
-        const name = window.prompt('Service name', service.name || '');
-        if (name === null) return;
-        const description = window.prompt('Description', service.description || '');
-        if (description === null) return;
-        const durationInput = window.prompt('Duration (minutes)', String(service.duration_minutes || 60));
-        if (durationInput === null) return;
-        const priceInput = window.prompt('Price', String(service.price || 0));
-        if (priceInput === null) return;
-
-        await serviceAPI.update(service.service_id, {
-          name,
-          description,
-          category: service.category,
-          duration_minutes: Number(durationInput) || 60,
-          price: Number(priceInput) || 0,
-          is_active: service.is_active ?? true,
-        });
-        toast.success('Service updated');
-        fetchServices();
-        return;
-      }
-
-      if (action === 'Delete') {
-        const ok = window.confirm(`Delete service ${service.name}?`);
-        if (!ok) return;
-        await serviceAPI.remove(service.service_id);
-        toast.success('Service deleted');
-        fetchServices();
-      }
+      await serviceAPI.update(editingService.service_id, {
+        name: editingService.name,
+        description: editingService.description,
+        category: editingService.category,
+        duration_minutes: Number(editingService.duration_minutes) || 60,
+        price: Number(editingService.price) || 0,
+        is_active: editingService.is_active ?? true,
+      });
+      toast.success('Service updated');
+      setShowEditDialog(false);
+      setEditingService(null);
+      fetchServices();
     } catch (error) {
-      toast.error(error.response?.data?.detail || `Failed to ${action.toLowerCase()} service`);
+      toast.error(error.response?.data?.detail || 'Failed to update service');
+    }
+  };
+
+  const handleConfirmServiceDelete = async () => {
+    if (!deletingService) return;
+    try {
+      await serviceAPI.remove(deletingService.service_id);
+      toast.success('Service deleted');
+      setShowDeleteDialog(false);
+      setDeletingService(null);
+      fetchServices();
+    } catch (error) {
+      toast.error(error.response?.data?.detail || 'Failed to delete service');
     }
   };
 
@@ -828,6 +928,88 @@ const AdminServices = () => {
           ))
         )}
       </div>
+
+      <Dialog open={showEditDialog} onOpenChange={setShowEditDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Edit Service</DialogTitle>
+            <DialogDescription>Update service information</DialogDescription>
+          </DialogHeader>
+          {editingService && (
+            <div className="space-y-4 py-2">
+              <div className="space-y-2">
+                <Label>Service Name *</Label>
+                <Input
+                  value={editingService.name}
+                  onChange={(e) => setEditingService({ ...editingService, name: e.target.value })}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Description</Label>
+                <Textarea
+                  value={editingService.description}
+                  onChange={(e) => setEditingService({ ...editingService, description: e.target.value })}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Category *</Label>
+                <Select
+                  value={editingService.category}
+                  onValueChange={(v) => setEditingService({ ...editingService, category: v })}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="paediatric_physio">Paediatric Physiotherapy</SelectItem>
+                    <SelectItem value="weight_management">Weight Management</SelectItem>
+                    <SelectItem value="pcod">PCOD Program</SelectItem>
+                    <SelectItem value="zumba_aerobics_yoga">Zumba/Aerobics/Yoga</SelectItem>
+                    <SelectItem value="pain_management">Pain Management</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label>Duration (mins)</Label>
+                  <Input
+                    type="number"
+                    value={editingService.duration_minutes}
+                    onChange={(e) => setEditingService({ ...editingService, duration_minutes: Number(e.target.value) })}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>Price (₹)</Label>
+                  <Input
+                    type="number"
+                    value={editingService.price}
+                    onChange={(e) => setEditingService({ ...editingService, price: Number(e.target.value) })}
+                  />
+                </div>
+              </div>
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowEditDialog(false)}>Cancel</Button>
+            <Button className="bg-[#2A9D8F]" onClick={handleSaveServiceEdit}>Save Changes</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete Service</DialogTitle>
+            <DialogDescription>
+              {deletingService ? `Are you sure you want to delete ${deletingService.name}?` : 'Confirm delete'}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowDeleteDialog(false)}>Cancel</Button>
+            <Button className="bg-red-600 hover:bg-red-700" onClick={handleConfirmServiceDelete}>Delete</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };
@@ -1041,6 +1223,8 @@ const AdminGuestBookings = () => {
 const AdminAppointments = () => {
   const [appointments, setAppointments] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [showEditDialog, setShowEditDialog] = useState(false);
+  const [editingAppointment, setEditingAppointment] = useState(null);
 
   useEffect(() => {
     fetchAppointments();
@@ -1073,17 +1257,34 @@ const AdminAppointments = () => {
       }
 
       if (action === 'Edit') {
-        const status = window.prompt(
-          'Set status: pending, confirmed, completed, cancelled, no_show',
-          appointment.status || 'pending'
-        );
-        if (!status) return;
-        await appointmentAPI.updateStatus(appointment.appointment_id, status);
-        toast.success('Appointment status updated');
-        fetchAppointments();
+        setEditingAppointment({
+          appointment_id: appointment.appointment_id,
+          client_name: appointment.client_name,
+          service_name: appointment.service_name,
+          scheduled_date: appointment.scheduled_date,
+          scheduled_time: appointment.scheduled_time,
+          status: appointment.status || 'pending',
+        });
+        setShowEditDialog(true);
       }
     } catch (error) {
       toast.error(error.response?.data?.detail || `Failed to ${action.toLowerCase()} appointment`);
+    }
+  };
+
+  const handleSaveAppointment = async () => {
+    if (!editingAppointment?.status) {
+      toast.error('Status is required');
+      return;
+    }
+    try {
+      await appointmentAPI.updateStatus(editingAppointment.appointment_id, editingAppointment.status);
+      toast.success('Appointment status updated');
+      setShowEditDialog(false);
+      setEditingAppointment(null);
+      fetchAppointments();
+    } catch (error) {
+      toast.error(error.response?.data?.detail || 'Failed to update appointment');
     }
   };
 
@@ -1147,6 +1348,48 @@ const AdminAppointments = () => {
           </Table>
         </CardContent>
       </Card>
+
+      <Dialog open={showEditDialog} onOpenChange={setShowEditDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Update Appointment</DialogTitle>
+            <DialogDescription>
+              {editingAppointment
+                ? `${editingAppointment.client_name} | ${editingAppointment.service_name}`
+                : 'Update appointment status'}
+            </DialogDescription>
+          </DialogHeader>
+          {editingAppointment && (
+            <div className="space-y-4 py-2">
+              <div className="text-sm text-slate-600">
+                {editingAppointment.scheduled_date} {editingAppointment.scheduled_time}
+              </div>
+              <div className="space-y-2">
+                <Label>Status</Label>
+                <Select
+                  value={editingAppointment.status}
+                  onValueChange={(v) => setEditingAppointment({ ...editingAppointment, status: v })}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="pending">Pending</SelectItem>
+                    <SelectItem value="confirmed">Confirmed</SelectItem>
+                    <SelectItem value="completed">Completed</SelectItem>
+                    <SelectItem value="cancelled">Cancelled</SelectItem>
+                    <SelectItem value="no_show">No Show</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowEditDialog(false)}>Cancel</Button>
+            <Button className="bg-[#2A9D8F]" onClick={handleSaveAppointment}>Save</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };
